@@ -5,6 +5,7 @@ import {
   rosterOf, record, points, rankOf, ordinal, formatTags, isBad, isConcern, playerName,
   type LeagueFull,
 } from "@/lib/sleeper";
+import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
 export default async function Leagues({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
@@ -15,16 +16,31 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
     getLeagues(user.user_id, state.season) as Promise<LeagueFull[]>, getPlayers(),
   ]);
 
+  let projections: Record<string, Proj> = {};
+  try { projections = await getProjections(state.season, state.week); } catch { /* show page without advice */ }
+
+  const lockedTeams = await getLockedTeams(state.season, state.week);
+  const locked = (id: string) => lockedTeams.has(positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
+
   const rows = (await Promise.all(leagues.map(async (l) => {
     const [rosters, users] = await Promise.all([getRosters(l.league_id), getLeagueUsers(l.league_id)]);
     const mine = rosterOf(rosters, user.user_id);
     if (!mine) return null;
     const team = users.find((u) => u.user_id === user.user_id)?.metadata?.team_name;
     const starters = (mine.starters ?? []).filter((id) => id !== "0");
-    const out = starters.filter((id) => isBad(players[id]));
+    const out = starters.filter((id) => isBad(players[id]) && !locked(id));
     const q = starters.filter((id) => isConcern(players[id]) && !isBad(players[id]));
     const empty = (mine.starters ?? []).filter((id) => id === "0").length;
+    const reserve = mine.reserve ?? [], taxi = mine.taxi ?? [];
+    const benchIds = (mine.players ?? []).filter((id) => !(mine.starters ?? []).includes(id) && !reserve.includes(id) && !taxi.includes(id));
+    const pts = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], l.scoring_settings ?? {}));
+    const advice = adviseLineup({
+      slots: l.roster_positions.filter((s) => s !== "BN" && s !== "IR" && s !== "TAXI"),
+      starters: mine.starters ?? [], candidates: [...starters, ...benchIds], players, pts, locked,
+    });
+    const gain = l.settings?.best_ball ? 0 : advice.swaps.filter((w) => w.gain >= 0.5).reduce((t, w) => t + w.gain, 0);
     return {
+      gain, proj: l.settings?.best_ball ? advice.best : advice.current,
       l, team, mine, rank: rankOf(rosters, mine), size: rosters.length,
       out: out.map((id) => playerName(players[id], id)), q: q.length, empty,
     };
@@ -33,7 +49,7 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
 
   const w = rows.reduce((s, r) => s + r.mine.settings.wins, 0);
   const lo = rows.reduce((s, r) => s + r.mine.settings.losses, 0);
-  const needFix = rows.filter((r) => r.out.length || r.empty).length;
+  const needFix = rows.filter((r) => r.out.length || r.empty || r.gain >= 1).length;
   const dupes = new Set(rows.map((r) => r.l.name).filter((n, i, a) => a.indexOf(n) !== i));
 
   return (
@@ -49,13 +65,13 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
       <div className="grid grid-cols-3 gap-2 mt-4 text-center">
         <Stat label="Leagues" value={String(rows.length)} />
         <Stat label="Overall record" value={`${w}-${lo}`} />
-        <Stat label="Lineups to fix" value={String(needFix)} alert={needFix > 0} />
+        <Stat label="Lineups to improve" value={String(needFix)} alert={needFix > 0} />
       </div>
 
       <div className="card mt-4 overflow-hidden">
         <div className="hidden sm:grid grid-cols-[1fr_5rem_5rem_5rem_9rem] gap-2 px-4 py-2 text-xs muted border-b line">
           <span>League</span><span className="text-right">Record</span><span className="text-right">Rank</span>
-          <span className="text-right">Points</span><span className="text-right">Lineup</span>
+          <span className="text-right">Proj.</span><span className="text-right">Start-sit</span>
         </div>
         {rows.map((r) => (
           <Link key={r.l.league_id} href={`/sleeper/${username}/league/${r.l.league_id}`}
@@ -71,18 +87,20 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
             </div>
             <span className="hidden sm:block text-right font-semibold tabular-nums">{record(r.mine)}</span>
             <span className="hidden sm:block text-right tabular-nums">{ordinal(r.rank)}<span className="muted text-xs">/{r.size}</span></span>
-            <span className="hidden sm:block text-right tabular-nums muted">{points(r.mine).toFixed(0)}</span>
+            <span className="hidden sm:block text-right tabular-nums muted">{r.proj.toFixed(1)}</span>
             <span className="col-span-2 sm:col-span-1 sm:text-right text-xs">
-              {r.out.length || r.empty ? (
+              {r.gain >= 1 ? (
                 <span className="font-semibold text-red-500" title={r.out.join(", ")}>
-                  {r.out.length ? `${r.out.length} injured starter${r.out.length > 1 ? "s" : ""}` : ""}
-                  {r.out.length && r.empty ? " · " : ""}
-                  {r.empty ? `${r.empty} empty` : ""}
+                  +{r.gain.toFixed(1)} pts available{r.out.length ? ` · ${r.out.length} hurt` : ""}
+                </span>
+              ) : r.out.length || r.empty ? (
+                <span className="font-semibold text-red-500" title={r.out.join(", ")}>
+                  {r.out.length ? `${r.out.length} injured starter${r.out.length > 1 ? "s" : ""}` : `${r.empty} empty`}
                 </span>
               ) : r.q ? (
-                <span className="text-amber-500 font-semibold">{r.q} questionable</span>
+                <span className="text-amber-500 font-semibold">Best lineup · {r.q} Q</span>
               ) : (
-                <span style={{ color: "var(--brand)" }} className="font-semibold">Set</span>
+                <span style={{ color: "var(--brand)" }} className="font-semibold">Best lineup</span>
               )}
             </span>
           </Link>

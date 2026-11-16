@@ -5,12 +5,13 @@ import {
   playerName, rosterOf, record, points, rankOf, ordinal, slotLabel, formatTags, isBad,
   type Player, type LeagueFull,
 } from "@/lib/sleeper";
+import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
 const POS_COLOR: Record<string, string> = {
   QB: "#ef4444", RB: "#22c55e", WR: "#3b82f6", TE: "#f59e0b", K: "#a855f7", DEF: "#64748b",
 };
 
-function Row({ id, slot, p }: { id: string; slot?: string; p?: Player }) {
+function Row({ id, slot, p, proj, pts, played }: { id: string; slot?: string; p?: Player; proj?: Proj; pts?: number; played?: boolean }) {
   if (id === "0") {
     return (
       <li className="flex items-center gap-2 py-1.5 border-b line last:border-0 text-sm">
@@ -27,12 +28,16 @@ function Row({ id, slot, p }: { id: string; slot?: string; p?: Player }) {
       <span className="w-8 shrink-0 text-center text-[10px] font-bold py-0.5 rounded text-white"
         style={{ background: POS_COLOR[pos] ?? "#94a3b8" }}>{pos}</span>
       <span className="font-medium truncate">{playerName(p, id)}</span>
-      <span className="muted text-xs shrink-0">{p?.team ?? ""}</span>
+      <span className="muted text-xs shrink-0">
+        {p?.team ?? ""}{proj?.opponent ? ` v ${proj.opponent}` : pts !== undefined && !proj ? " · bye/none" : ""}
+      </span>
       {p?.injury_status && (
-        <span className={`ml-auto shrink-0 text-[11px] font-semibold ${bad ? "text-red-500" : "text-amber-500"}`}>
+        <span className={`shrink-0 text-[11px] font-semibold ${bad ? "text-red-500" : "text-amber-500"}`}>
           {p.injury_status === "Questionable" ? "Q" : p.injury_status}
         </span>
       )}
+      {played ? <span className="ml-auto shrink-0 text-[11px] muted">played</span>
+        : pts !== undefined && <span className="ml-auto shrink-0 tabular-nums text-sm font-semibold">{pts.toFixed(1)}</span>}
     </li>
   );
 }
@@ -50,8 +55,11 @@ function Group({ title, ids, players, open }: { title: string; ids: string[]; pl
   );
 }
 
-export default async function LeaguePage({ params }: { params: Promise<{ username: string; leagueId: string }> }) {
+export default async function LeaguePage({ params, searchParams }: {
+  params: Promise<{ username: string; leagueId: string }>; searchParams: Promise<{ week?: string }>;
+}) {
   const { username, leagueId } = await params;
+  const { week: weekParam } = await searchParams;
   const user = await getUser(decodeURIComponent(username));
   if (!user) notFound();
   const state = await getNflState();
@@ -69,6 +77,21 @@ export default async function LeaguePage({ params }: { params: Promise<{ usernam
   const taxi = mine.taxi ?? [];
   const bench = (mine.players ?? []).filter((id) => !starters.includes(id) && !reserve.includes(id) && !taxi.includes(id));
   const problems = starters.filter((id) => id === "0" || isBad(players[id])).length;
+
+  // Start-sit: project every player with this league's scoring, then find the best lineup.
+  const week = Math.min(18, Math.max(1, Number(weekParam) || state.week));
+  let projections: Record<string, Proj> = {};
+  let projError = false;
+  try { projections = await getProjections(state.season, week); } catch { projError = true; }
+  const scoring = league.scoring_settings ?? {};
+  const pts = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], scoring));
+  const bestBall = !!league.settings?.best_ball;
+  const lockedTeams = await getLockedTeams(state.season, week);
+  const teamOf = (id: string) => (positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
+  const locked = (id: string) => lockedTeams.has(teamOf(id));
+  const allLocked = starters.filter((id) => id !== "0").every(locked);
+  const advice = adviseLineup({ slots, starters, candidates: [...starters.filter((id) => id !== "0"), ...bench], players, pts, locked });
+  const name = (id: string) => playerName(players[id], id);
   const others = [...all].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -98,14 +121,54 @@ export default async function LeaguePage({ params }: { params: Promise<{ usernam
         </p>
       )}
 
+      <section className="card px-4 py-3 mt-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+          <h2 className="text-sm font-semibold">Start-sit for Week {week}</h2>
+          <p className="text-xs muted">
+            {week === state.week
+              ? <Link className="underline" href={`?week=${Math.min(18, state.week + 1)}`}>Look ahead to Week {Math.min(18, state.week + 1)}</Link>
+              : <Link className="underline" href="?">Back to Week {state.week}</Link>}
+          </p>
+        </div>
+        {projError ? (
+          <p className="text-sm muted mt-1">Projections aren&apos;t available right now.</p>
+        ) : bestBall ? (
+          <p className="text-sm muted mt-1">Best ball league: your lineup sets itself. Projected {advice.best.toFixed(1)} pts.</p>
+        ) : allLocked ? (
+          <p className="text-sm muted mt-1">All your starters have played, so this week&apos;s lineup is locked. Look ahead to next week.</p>
+        ) : advice.swaps.filter((w) => w.gain >= 0.5).length === 0 ? (
+          <p className="text-sm mt-1">
+            <b style={{ color: "var(--brand)" }}>Your lineup is the best one available.</b>{" "}
+            <span className="muted">Projected {advice.current.toFixed(1)} pts.</span>
+          </p>
+        ) : (
+          <>
+            <p className="text-sm mt-1">
+              Projected <b>{advice.current.toFixed(1)}</b> pts now, <b>{advice.best.toFixed(1)}</b> with these changes{" "}
+              <b style={{ color: "var(--brand)" }}>(+{advice.gain.toFixed(1)})</b>
+            </p>
+            <ul className="mt-2">
+              {advice.swaps.filter((w) => w.gain >= 0.5).map((w) => (
+                <li key={w.inId} className="flex flex-wrap items-baseline gap-x-2 py-1.5 border-t line text-sm">
+                  <span><b>Start</b> {name(w.inId)} <span className="muted text-xs">{pts(w.inId).toFixed(1)}</span></span>
+                  <span>{w.outId === "0" ? <span className="muted">in the empty slot</span> : <><b>Sit</b> {name(w.outId)} <span className="muted text-xs">{pts(w.outId).toFixed(1)}</span></>}</span>
+                  <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{w.gain.toFixed(1)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules. Vegas lines and your expert rankings get blended in next.</p>
+      </section>
+
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         <section className="card px-4 py-3">
           <h2 className="text-sm font-semibold mb-1">Starters</h2>
-          <ul>{starters.map((id, i) => <Row key={id + i} id={id} slot={slots[i] ?? ""} p={players[id]} />)}</ul>
+          <ul>{starters.map((id, i) => <Row key={id + i} id={id} slot={slots[i] ?? ""} p={players[id]} proj={projections[id]} pts={id === "0" ? undefined : pts(id)} played={id !== "0" && locked(id)} />)}</ul>
         </section>
         <section className="card px-4 py-3 self-start">
           <h2 className="text-sm font-semibold mb-1">Bench <span className="muted font-normal">({bench.length})</span></h2>
-          <ul>{bench.map((id) => <Row key={id} id={id} p={players[id]} />)}</ul>
+          <ul>{[...bench].sort((a, b) => pts(b) - pts(a)).map((id) => <Row key={id} id={id} p={players[id]} proj={projections[id]} pts={pts(id)} played={locked(id)} />)}</ul>
           <Group title="Injured reserve" ids={reserve} players={players} />
           <Group title="Taxi squad" ids={taxi} players={players} />
         </section>
