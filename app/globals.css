@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+:root { --bg: #f6f7f9; --card: #ffffff; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --brand: #16a34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0b1120; --card: #111827; --ink: #e5e7eb; --muted: #94a3b8; --line: #1f2937; --brand: #22c55e; }
+}
+body { background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.muted { color: var(--muted); }
+.line { border-color: var(--line); }
+.btn { background: var(--brand); color: white; border-radius: 10px; padding: 0.6rem 1.1rem; font-weight: 600; }
