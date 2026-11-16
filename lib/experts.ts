@@ -14,7 +14,7 @@ const byKey = new Map<string, Row>();
 for (const r of data.players) byKey.set(`${norm(r.name)}|${r.pos}`, r);
 
 // A second source: the FantasyPros rest-of-season consensus, loaded at request time.
-let consensus: { ranks: Map<string, number>; depth: Record<string, number>; experts: number; updated: string } | null = null;
+let consensus: { ranks: Map<string, number>; depth: Record<string, number>; experts: number; updated: string; dell?: boolean } | null = null;
 export function setRosConsensus(c: typeof consensus) { consensus = c && c.ranks.size ? c : null; }
 
 export const expertSource = {
@@ -22,7 +22,7 @@ export const expertSource = {
   get label() {
     const parts: string[] = [];
     if (data.players.length) parts.push(`${data.source} (${data.asOf})`);
-    if (consensus) parts.push(`the FantasyPros rest-of-season consensus (${consensus.experts} experts, updated ${consensus.updated})`);
+    if (consensus) parts.push(`the FantasyPros rest-of-season consensus (${consensus.experts} experts, updated ${consensus.updated}${consensus.dell ? ", with Chris Dell's list counted as half" : ""})`);
     return parts.join(" and ");
   },
 };

@@ -205,7 +205,7 @@ export default async function LeaguePage({ params, searchParams }: {
           </>
         )}
         <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}.{" "}
-          {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus of ${weekly.experts} experts (updated ${weekly.updated}).`
+          {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus of ${weekly.experts} experts (updated ${weekly.updated})${weekly.dell ? ", with Chris Dell's list counted as half of that" : ""}.`
             : weekly.experts > 0 ? `Only ${weekly.experts} FantasyPros experts have ranked this week so far, so their consensus joins in once at least ${MIN_EXPERTS} have.`
             : "FantasyPros weekly rankings aren't loaded."}</p>
       </section>
