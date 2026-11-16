@@ -2,10 +2,12 @@
 import type { Player, Roster } from "@/lib/sleeper";
 import { isBad } from "@/lib/sleeper";
 import { projectPoints, positionOf, type Proj } from "@/lib/projections";
+import { expertRank, expertDepth } from "@/lib/experts";
 
 export type WaiverPick = {
   addId: string; dropId: string | null; pos: string;
   addAvg: number; dropAvg: number; gain: number; thisWeek: number; trending: boolean;
+  addRank: number | null; dropRank: number | null;   // expert rest-of-season rank at the position
 };
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -25,6 +27,25 @@ export function waiverPicks(opts: {
     const vals = weeks.map((w) => (w[id] ? projectPoints(w[id], scoring) : null)).filter((v): v is number => v !== null);
     return vals.length ? r1(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
   };
+  // Blend with the experts: average the player's projection rank at his position with
+  // his expert rest-of-season rank, then read off the points that blended rank is worth.
+  const ladders: Record<string, number[]> = {};
+  const projRank: Record<string, number> = {};
+  for (const pos of Object.keys(expertDepth)) {
+    const list = Object.keys(weeks[0] ?? {}).filter((id) => players[id]?.position === pos)
+      .map((id) => ({ id, a: avg(id) })).sort((x, y) => y.a - x.a);
+    ladders[pos] = list.map((x) => x.a);
+    list.forEach((x, i) => { projRank[x.id] = i + 1; });
+  }
+  const value = (id: string) => {
+    const pos = positionOf(id, players[id]);
+    const ladder = ladders[pos];
+    if (!ladder?.length || isBad(players[id])) return avg(id);
+    const pr = projRank[id] ?? ladder.length;
+    const er = expertRank(players[id])?.rank ?? expertDepth[pos] + 15;   // unranked = below the list
+    const blended = Math.min(ladder.length, Math.max(1, Math.round((pr + er) / 2)));
+    return ladder[blended - 1] ?? 0;
+  };
   const now = (id: string) => (isBad(players[id]) ? 0 : projectPoints(weeks[0]?.[id], scoring));
 
   const used = new Set(slots.filter((s) => s !== "BN"));
@@ -34,7 +55,7 @@ export function waiverPicks(opts: {
 
   const free = Object.keys(weeks[0] ?? {})
     .filter((id) => !owned.has(id) && (players[id]?.team || /^[A-Z]{2,3}$/.test(id)))
-    .map((id) => ({ id, pos: positionOf(id, players[id]), avg: avg(id) }))
+    .map((id) => ({ id, pos: positionOf(id, players[id]), avg: value(id) }))
     .filter((f) => wanted(f.pos) && f.avg > 0)
     .sort((a, b) => b.avg - a.avg);
 
@@ -42,7 +63,7 @@ export function waiverPicks(opts: {
   const reserve = new Set([...(mine.reserve ?? []), ...(mine.taxi ?? [])]);
   // Never suggest dropping an injured player: a zero projection there says nothing about his value.
   const mineIds = (mine.players ?? []).filter((id) => !reserve.has(id) && !players[id]?.injury_status);
-  const droppable = mineIds.map((id) => ({ id, pos: positionOf(id, players[id]), avg: avg(id) })).sort((a, b) => a.avg - b.avg);
+  const droppable = mineIds.map((id) => ({ id, pos: positionOf(id, players[id]), avg: value(id) })).sort((a, b) => a.avg - b.avg);
 
   const picks: WaiverPick[] = [];
   const dropped = new Set<string>();
@@ -53,11 +74,15 @@ export function waiverPicks(opts: {
     // Drop the weakest player at the same position; that keeps your roster balanced.
     const d = droppable.find((x) => x.pos === f.pos && !dropped.has(x.id));
     if (!d || f.avg - d.avg < 1) continue;
+    // If the experts rank your player ahead of the free agent, a short-term projection edge isn't enough.
+    const ar = expertRank(players[f.id])?.rank, dr = expertRank(players[d.id])?.rank;
+    if (dr != null && (ar == null || ar > dr)) continue;
     dropped.add(d.id);
     perPos[f.pos] = (perPos[f.pos] ?? 0) + 1;
     picks.push({
       addId: f.id, dropId: d.id, pos: f.pos, addAvg: f.avg, dropAvg: d.avg,
       gain: r1(f.avg - d.avg), thisWeek: r1(now(f.id)), trending: trending.has(f.id),
+      addRank: expertRank(players[f.id])?.rank ?? null, dropRank: expertRank(players[d.id])?.rank ?? null,
     });
   }
   return picks.sort((a, b) => b.gain - a.gain);

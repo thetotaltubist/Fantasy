@@ -6,6 +6,7 @@ import {
   type Player, type LeagueFull,
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
+import { expertSource } from "@/lib/experts";
 import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
@@ -199,15 +200,16 @@ export default async function LeaguePage({ params, searchParams }: {
               <li key={w.addId} className="flex flex-wrap items-baseline gap-x-2 py-1.5 border-t line first:border-0 text-sm">
                 <span className="w-8 shrink-0 text-center text-[10px] font-bold py-0.5 rounded text-white"
                   style={{ background: POS_COLOR[w.pos] ?? "#94a3b8" }}>{w.pos}</span>
-                <span><b>Add</b> {name(w.addId)} <span className="muted text-xs">{players[w.addId]?.team ?? ""} · {w.addAvg.toFixed(1)}/gm</span></span>
+                <span><b>Add</b> {name(w.addId)} <span className="muted text-xs">{players[w.addId]?.team ?? ""} · {w.addAvg.toFixed(1)}/gm{w.addRank ? ` · ROS ${w.pos}${w.addRank}` : ""}</span></span>
                 {w.trending && <span className="text-[10px] font-semibold text-amber-500">HOT</span>}
-                {w.dropId && <span><b>Drop</b> {name(w.dropId)} <span className="muted text-xs">{w.dropAvg.toFixed(1)}/gm</span></span>}
+                {w.dropId && <span><b>Drop</b> {name(w.dropId)} <span className="muted text-xs">{w.dropAvg.toFixed(1)}/gm{w.dropRank ? ` · ROS ${w.pos}${w.dropRank}` : ""}</span></span>}
                 <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{w.gain.toFixed(1)}</span>
               </li>
             ))}
           </ul>
         )}
-        <p className="text-[11px] muted mt-2">Based on projected points per game over the next three weeks. HOT means lots of Sleeper managers added the player in the last day.
+        <p className="text-[11px] muted mt-2">Value blends projected points over the next three weeks with{" "}
+          {expertSource.count ? `the ${expertSource.name} (${expertSource.asOf})` : "expert rankings once uploaded"}. HOT means lots of Sleeper managers added the player in the last day.
           {league.settings?.type === 2 ? " Dynasty league: this only looks at the next few weeks, so weigh long-term value before dropping young players." : ""}</p>
       </section>
 
