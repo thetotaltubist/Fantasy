@@ -10,11 +10,14 @@ async function refreshToken() {
   return (await cookies()).get(YAHOO_COOKIE)?.value ?? null;
 }
 
-export const redirectUri = (origin: string) => `${origin}/api/yahoo/callback`;
+// The public address of the site. Yahoo only accepts the exact redirect
+// address registered in the Yahoo app, so never derive it from the request.
+export const SITE_URL = (process.env.SITE_URL ?? "https://fantasy-hq-tubist.netlify.app").replace(/\/$/, "");
+export const redirectUri = () => `${SITE_URL}/api/yahoo/callback`;
 
-export function authorizeUrl(origin: string, state: string) {
+export function authorizeUrl(state: string) {
   const q = new URLSearchParams({
-    client_id: process.env.YAHOO_CLIENT_ID ?? "", redirect_uri: redirectUri(origin),
+    client_id: process.env.YAHOO_CLIENT_ID ?? "", redirect_uri: redirectUri(),
     response_type: "code", state,
   });
   return `${AUTH}/request_auth?${q}`;
@@ -33,8 +36,8 @@ async function tokenRequest(body: Record<string, string>) {
 }
 
 // Returns the refresh token to store in the cookie.
-export async function exchangeCode(code: string, origin: string): Promise<string> {
-  const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri(origin) });
+export async function exchangeCode(code: string): Promise<string> {
+  const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri() });
   cache.set(t.refresh_token, { token: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 });
   return t.refresh_token;
 }
