@@ -19,6 +19,7 @@ export function authorizeUrl(state: string) {
   const q = new URLSearchParams({
     client_id: process.env.YAHOO_CLIENT_ID ?? "", redirect_uri: redirectUri(),
     response_type: "code", state,
+    scope: "fspt-r", // Fantasy Sports, read-only
   });
   return `${AUTH}/request_auth?${q}`;
 }

@@ -28,7 +28,13 @@ export default async function YahooPage({ searchParams }: { searchParams: Promis
         </div>
         <a href="/api/yahoo/login" className="muted text-xs underline">Reconnect</a>
       </div>
-      {loadError && <p className="card p-4 mt-4 text-sm text-red-500">Couldn&apos;t load Yahoo: {loadError}</p>}
+      {(loadError || error) && (
+        <div className="card p-4 mt-4 text-sm">
+          <p className="font-semibold text-red-500">Yahoo didn&apos;t share your leagues.</p>
+          <p className="muted mt-1">Tap Reconnect and approve access. Details: {error ?? loadError}</p>
+          <a href="/api/yahoo/login" className="btn inline-block mt-3">Reconnect Yahoo</a>
+        </div>
+      )}
       <div className="card mt-4 overflow-hidden">
         {teams.map((t) => (
           <Link key={t.teamKey} href={`/yahoo/${t.teamKey}`}

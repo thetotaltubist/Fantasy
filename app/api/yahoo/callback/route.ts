@@ -6,6 +6,8 @@ import { exchangeCode, YAHOO_COOKIE, SITE_URL } from "@/lib/yahoo";
 export async function GET(req: NextRequest) {
   const jar = await cookies();
   if (!(await isSignedIn(jar.get(AUTH_COOKIE)?.value))) return NextResponse.redirect(new URL("/login", SITE_URL));
+  const yahooError = req.nextUrl.searchParams.get("error_description") ?? req.nextUrl.searchParams.get("error");
+  if (yahooError) return NextResponse.redirect(new URL(`/yahoo?error=${encodeURIComponent(yahooError)}`, SITE_URL));
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   if (!code || !state || state !== jar.get("fhq_yahoo_state")?.value) {
