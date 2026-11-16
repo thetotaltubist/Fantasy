@@ -1,9 +1,14 @@
 // Yahoo Fantasy Sports API (OAuth 2). Read-only.
-import { getSecret, setSecret } from "@/lib/store";
+import { cookies } from "next/headers";
 
 const AUTH = "https://api.login.yahoo.com/oauth2";
 const API = "https://fantasysports.yahooapis.com/fantasy/v2";
-const TOKEN_KEY = "yahoo_refresh_token";
+export const YAHOO_COOKIE = "fhq_yahoo";
+
+// The Yahoo refresh token lives in a private (httpOnly) cookie on your browser.
+async function refreshToken() {
+  return (await cookies()).get(YAHOO_COOKIE)?.value ?? null;
+}
 
 export const redirectUri = (origin: string) => `${origin}/api/yahoo/callback`;
 
@@ -27,23 +32,25 @@ async function tokenRequest(body: Record<string, string>) {
   return json as { access_token: string; refresh_token: string; expires_in: number };
 }
 
-export async function exchangeCode(code: string, origin: string) {
+// Returns the refresh token to store in the cookie.
+export async function exchangeCode(code: string, origin: string): Promise<string> {
   const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri(origin) });
-  await setSecret(TOKEN_KEY, t.refresh_token);
-  cached = { token: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 };
+  cache.set(t.refresh_token, { token: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 });
+  return t.refresh_token;
 }
 
-export const isConnected = async () => !!(await getSecret(TOKEN_KEY));
+export const isConnected = async () => !!(await refreshToken());
 
-let cached: { token: string; until: number } | null = null;
+// Access tokens last an hour; keep them in memory keyed by refresh token.
+const cache = new Map<string, { token: string; until: number }>();
 async function accessToken(): Promise<string | null> {
-  if (cached && Date.now() < cached.until) return cached.token;
-  const refresh = await getSecret(TOKEN_KEY);
+  const refresh = await refreshToken();
   if (!refresh) return null;
+  const hit = cache.get(refresh);
+  if (hit && Date.now() < hit.until) return hit.token;
   const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: refresh, redirect_uri: "oob" });
-  if (t.refresh_token && t.refresh_token !== refresh) await setSecret(TOKEN_KEY, t.refresh_token);
-  cached = { token: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 };
-  return cached.token;
+  cache.set(refresh, { token: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 });
+  return t.access_token;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
