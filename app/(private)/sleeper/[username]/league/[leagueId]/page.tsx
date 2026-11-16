@@ -6,6 +6,7 @@ import {
   type Player, type LeagueFull,
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
+import { tradeIdeas } from "@/lib/trades";
 import { expertSource } from "@/lib/experts";
 import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
@@ -114,6 +115,14 @@ export default async function LeaguePage({ params, searchParams }: {
     rosters, mine, players, weeks: [projections, next1, next2], scoring,
     slots: league.roster_positions, trending,
   });
+  const trades = projError ? [] : tradeIdeas({
+    rosters, mine, players, weeks: [projections, next1, next2], scoring, slots: league.roster_positions,
+  });
+  const ownerName = (rosterId: number) => {
+    const r = rosters.find((x) => x.roster_id === rosterId);
+    const u = users.find((x) => x.user_id === r?.owner_id);
+    return u?.metadata?.team_name?.trim() || u?.display_name || `Team ${rosterId}`;
+  };
   const bestBall = !!league.settings?.best_ball;
   const lockedTeams = await getLockedTeams(state.season, week);
   const teamOf = (id: string) => (positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
@@ -211,6 +220,34 @@ export default async function LeaguePage({ params, searchParams }: {
         <p className="text-[11px] muted mt-2">Value blends projected points over the next three weeks with{" "}
           {expertSource.count ? `the ${expertSource.name} (${expertSource.asOf})` : "expert rankings once uploaded"}. HOT means lots of Sleeper managers added the player in the last day.
           {league.settings?.type === 2 ? " Dynasty league: this only looks at the next few weeks, so weigh long-term value before dropping young players." : ""}</p>
+      </section>
+
+      <section className="card px-4 py-3 mt-3">
+        <h2 className="text-sm font-semibold">Trade partners</h2>
+        {trades.length === 0 ? (
+          <p className="text-sm muted mt-1">No one-for-one trade clearly helps both teams right now.</p>
+        ) : (
+          <ul className="mt-1">
+            {trades.map((t) => {
+              const gp = positionOf(t.giveId, players[t.giveId]), rp = positionOf(t.getId, players[t.getId]);
+              return (
+                <li key={t.partnerId} className="py-1.5 border-t line first:border-0 text-sm">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-semibold">{ownerName(t.partnerId)}</span>
+                    <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{t.myGain.toFixed(1)}</span>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <span><b>Get</b> {name(t.getId)} <span className="muted text-xs">{rp} · {t.getVal.toFixed(1)}/gm{t.getRank ? ` · ROS ${rp}${t.getRank}` : ""}</span></span>
+                    <span><b>Give</b> {name(t.giveId)} <span className="muted text-xs">{gp} · {t.giveVal.toFixed(1)}/gm{t.giveRank ? ` · ROS ${gp}${t.giveRank}` : ""}</span></span>
+                    <span className="muted text-xs">helps them +{t.theirGain.toFixed(1)}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="text-[11px] muted mt-2">Each idea swaps a player you can spare for one who would start for you, where the other team&apos;s starting lineup improves too. The green number is points per game added to your lineup. Injured players are left out.
+          {league.settings?.type === 2 ? " Dynasty league: this ignores age and draft picks." : ""}</p>
       </section>
 
       <div className="grid md:grid-cols-2 gap-3 mt-3">

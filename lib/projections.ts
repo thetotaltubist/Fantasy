@@ -52,7 +52,7 @@ export function projectPoints(p: Proj | undefined, scoring: Record<string, numbe
   return Math.round(pts * 10) / 10;
 }
 
-const ELIGIBLE: Record<string, string[]> = {
+export const ELIGIBLE: Record<string, string[]> = {
   QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], K: ["K"], DEF: ["DEF"],
   FLEX: ["RB", "WR", "TE"], REC_FLEX: ["WR", "TE"], WRRB_FLEX: ["RB", "WR"],
   SUPER_FLEX: ["QB", "RB", "WR", "TE"],
