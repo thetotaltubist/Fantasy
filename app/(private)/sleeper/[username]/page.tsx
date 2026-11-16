@@ -5,6 +5,7 @@ import {
   rosterOf, record, points, rankOf, ordinal, formatTags, isBad, isConcern, playerName,
   type LeagueFull,
 } from "@/lib/sleeper";
+import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
 export default async function Leagues({ params }: { params: Promise<{ username: string }> }) {
@@ -19,6 +20,7 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
   let projections: Record<string, Proj> = {};
   try { projections = await getProjections(state.season, state.week); } catch { /* show page without advice */ }
 
+  const lines = await getLines();
   const lockedTeams = await getLockedTeams(state.season, state.week);
   const locked = (id: string) => lockedTeams.has(positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
 
@@ -33,7 +35,12 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
     const empty = (mine.starters ?? []).filter((id) => id === "0").length;
     const reserve = mine.reserve ?? [], taxi = mine.taxi ?? [];
     const benchIds = (mine.players ?? []).filter((id) => !(mine.starters ?? []).includes(id) && !reserve.includes(id) && !taxi.includes(id));
-    const pts = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], l.scoring_settings ?? {}));
+    const pts = (id: string) => {
+      if (isBad(players[id])) return 0;
+      const pos = positionOf(id, players[id]);
+      const team = pos === "DEF" ? id : players[id]?.team ?? "";
+      return projectPoints(projections[id], l.scoring_settings ?? {}) * vegasMultiplier(lines, team, pos, projections[id]?.opponent ?? null);
+    };
     const advice = adviseLineup({
       slots: l.roster_positions.filter((s) => s !== "BN" && s !== "IR" && s !== "TAXI"),
       starters: mine.starters ?? [], candidates: [...starters, ...benchIds], players, pts, locked,

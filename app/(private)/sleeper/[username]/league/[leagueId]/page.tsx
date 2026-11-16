@@ -5,13 +5,14 @@ import {
   playerName, rosterOf, record, points, rankOf, ordinal, slotLabel, formatTags, isBad,
   type Player, type LeagueFull,
 } from "@/lib/sleeper";
+import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
 const POS_COLOR: Record<string, string> = {
   QB: "#ef4444", RB: "#22c55e", WR: "#3b82f6", TE: "#f59e0b", K: "#a855f7", DEF: "#64748b",
 };
 
-function Row({ id, slot, p, proj, pts, played }: { id: string; slot?: string; p?: Player; proj?: Proj; pts?: number; played?: boolean }) {
+function Row({ id, slot, p, proj, pts, played, vegas }: { id: string; slot?: string; p?: Player; proj?: Proj; pts?: number; played?: boolean; vegas?: number }) {
   if (id === "0") {
     return (
       <li className="flex items-center gap-2 py-1.5 border-b line last:border-0 text-sm">
@@ -29,7 +30,8 @@ function Row({ id, slot, p, proj, pts, played }: { id: string; slot?: string; p?
         style={{ background: POS_COLOR[pos] ?? "#94a3b8" }}>{pos}</span>
       <span className="font-medium truncate">{playerName(p, id)}</span>
       <span className="muted text-xs shrink-0">
-        {p?.team ?? ""}{proj?.opponent ? ` v ${proj.opponent}` : pts !== undefined && !proj ? " · bye/none" : ""}
+        {p?.team ?? ""}{proj?.opponent ? ` v ${proj.opponent}` : ""}
+        {pts !== undefined && !proj?.opponent && !played && <span className="font-semibold text-amber-500"> BYE</span>}
       </span>
       {p?.injury_status && (
         <span className={`shrink-0 text-[11px] font-semibold ${bad ? "text-red-500" : "text-amber-500"}`}>
@@ -37,7 +39,15 @@ function Row({ id, slot, p, proj, pts, played }: { id: string; slot?: string; p?
         </span>
       )}
       {played ? <span className="ml-auto shrink-0 text-[11px] muted">played</span>
-        : pts !== undefined && <span className="ml-auto shrink-0 tabular-nums text-sm font-semibold">{pts.toFixed(1)}</span>}
+        : pts !== undefined && (
+          <span className="ml-auto shrink-0 tabular-nums text-sm font-semibold">
+            {vegas !== undefined && Math.abs(vegas) >= 0.3 && (
+              <span className={`text-[10px] font-normal mr-1 ${vegas > 0 ? "text-green-500" : "text-red-500"}`}
+                title="Vegas adjustment">{vegas > 0 ? "▲" : "▼"}{Math.abs(vegas).toFixed(1)}</span>
+            )}
+            {pts.toFixed(1)}
+          </span>
+        )}
     </li>
   );
 }
@@ -84,7 +94,13 @@ export default async function LeaguePage({ params, searchParams }: {
   let projError = false;
   try { projections = await getProjections(state.season, week); } catch { projError = true; }
   const scoring = league.scoring_settings ?? {};
-  const pts = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], scoring));
+  const lines = await getLines();
+  const teamFor = (id: string) => (/^[A-Z]{2,3}$/.test(id) && !players[id]?.team ? id : players[id]?.team ?? "");
+  const base = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], scoring));
+  const mult = (id: string) => vegasMultiplier(lines, teamFor(id), positionOf(id, players[id]), projections[id]?.opponent ?? null);
+  const pts = (id: string) => Math.round(base(id) * mult(id) * 10) / 10;
+  const vegas = (id: string) => Math.round((pts(id) - base(id)) * 10) / 10;
+  const hasLines = Object.keys(lines.teams).length > 0;
   const bestBall = !!league.settings?.best_ball;
   const lockedTeams = await getLockedTeams(state.season, week);
   const teamOf = (id: string) => (positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
@@ -158,17 +174,17 @@ export default async function LeaguePage({ params, searchParams }: {
             </ul>
           </>
         )}
-        <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules. Vegas lines and your expert rankings get blended in next.</p>
+        <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}. Your expert rankings get blended in next.</p>
       </section>
 
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         <section className="card px-4 py-3">
           <h2 className="text-sm font-semibold mb-1">Starters</h2>
-          <ul>{starters.map((id, i) => <Row key={id + i} id={id} slot={slots[i] ?? ""} p={players[id]} proj={projections[id]} pts={id === "0" ? undefined : pts(id)} played={id !== "0" && locked(id)} />)}</ul>
+          <ul>{starters.map((id, i) => <Row key={id + i} id={id} slot={slots[i] ?? ""} p={players[id]} proj={projections[id]} pts={id === "0" ? undefined : pts(id)} played={id !== "0" && locked(id)} vegas={id === "0" ? undefined : vegas(id)} />)}</ul>
         </section>
         <section className="card px-4 py-3 self-start">
           <h2 className="text-sm font-semibold mb-1">Bench <span className="muted font-normal">({bench.length})</span></h2>
-          <ul>{[...bench].sort((a, b) => pts(b) - pts(a)).map((id) => <Row key={id} id={id} p={players[id]} proj={projections[id]} pts={pts(id)} played={locked(id)} />)}</ul>
+          <ul>{[...bench].sort((a, b) => pts(b) - pts(a)).map((id) => <Row key={id} id={id} p={players[id]} proj={projections[id]} pts={pts(id)} played={locked(id)} vegas={vegas(id)} />)}</ul>
           <Group title="Injured reserve" ids={reserve} players={players} />
           <Group title="Taxi squad" ids={taxi} players={players} />
         </section>
