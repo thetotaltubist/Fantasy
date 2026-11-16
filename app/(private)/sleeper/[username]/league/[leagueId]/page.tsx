@@ -5,6 +5,7 @@ import {
   playerName, rosterOf, record, points, rankOf, ordinal, slotLabel, formatTags, isBad,
   type Player, type LeagueFull,
 } from "@/lib/sleeper";
+import { waiverPicks, getTrending } from "@/lib/waivers";
 import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
@@ -101,6 +102,17 @@ export default async function LeaguePage({ params, searchParams }: {
   const pts = (id: string) => Math.round(base(id) * mult(id) * 10) / 10;
   const vegas = (id: string) => Math.round((pts(id) - base(id)) * 10) / 10;
   const hasLines = Object.keys(lines.teams).length > 0;
+
+  // Waivers: best unrostered players over the next three weeks vs. your weakest bench spots.
+  const [next1, next2, trending] = await Promise.all([
+    getProjections(state.season, Math.min(18, week + 1)).catch(() => ({})),
+    getProjections(state.season, Math.min(18, week + 2)).catch(() => ({})),
+    getTrending(),
+  ]);
+  const picks = projError ? [] : waiverPicks({
+    rosters, mine, players, weeks: [projections, next1, next2], scoring,
+    slots: league.roster_positions, trending,
+  });
   const bestBall = !!league.settings?.best_ball;
   const lockedTeams = await getLockedTeams(state.season, week);
   const teamOf = (id: string) => (positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
@@ -175,6 +187,28 @@ export default async function LeaguePage({ params, searchParams }: {
           </>
         )}
         <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}. Your expert rankings get blended in next.</p>
+      </section>
+
+      <section className="card px-4 py-3 mt-3">
+        <h2 className="text-sm font-semibold">Waiver targets</h2>
+        {picks.length === 0 ? (
+          <p className="text-sm muted mt-1">Nothing on the wire clearly beats what you have.</p>
+        ) : (
+          <ul className="mt-1">
+            {picks.map((w) => (
+              <li key={w.addId} className="flex flex-wrap items-baseline gap-x-2 py-1.5 border-t line first:border-0 text-sm">
+                <span className="w-8 shrink-0 text-center text-[10px] font-bold py-0.5 rounded text-white"
+                  style={{ background: POS_COLOR[w.pos] ?? "#94a3b8" }}>{w.pos}</span>
+                <span><b>Add</b> {name(w.addId)} <span className="muted text-xs">{players[w.addId]?.team ?? ""} · {w.addAvg.toFixed(1)}/gm</span></span>
+                {w.trending && <span className="text-[10px] font-semibold text-amber-500">HOT</span>}
+                {w.dropId && <span><b>Drop</b> {name(w.dropId)} <span className="muted text-xs">{w.dropAvg.toFixed(1)}/gm</span></span>}
+                <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{w.gain.toFixed(1)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-[11px] muted mt-2">Based on projected points per game over the next three weeks. HOT means lots of Sleeper managers added the player in the last day.
+          {league.settings?.type === 2 ? " Dynasty league: this only looks at the next few weeks, so weigh long-term value before dropping young players." : ""}</p>
       </section>
 
       <div className="grid md:grid-cols-2 gap-3 mt-3">
