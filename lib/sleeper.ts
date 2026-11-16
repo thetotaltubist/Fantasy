@@ -61,3 +61,42 @@ const SLOT_LABEL: Record<string, string> = {
 export const slotLabel = (s?: string) => (s ? SLOT_LABEL[s] ?? s : "");
 
 export const avatarUrl = (id: string | null) => (id ? `https://sleepercdn.com/avatars/thumbs/${id}` : null);
+
+// ---------- Summaries used by the compact pages ----------
+
+export type LeagueSettings = {
+  type?: number; best_ball?: number; league_average_match?: number;
+};
+export type LeagueFull = League & { settings?: LeagueSettings };
+
+const BAD_STATUS = new Set(["Out", "IR", "Doubtful", "Sus", "PUP", "NA"]);
+export const isAlert = (p?: Player) => !!p?.injury_status && p.injury_status !== "Questionable";
+export const isConcern = (p?: Player) => !!p?.injury_status;
+export const isBad = (p?: Player) => !!p?.injury_status && BAD_STATUS.has(p.injury_status);
+
+export function formatTags(l: LeagueFull): string[] {
+  const s = l.settings ?? {};
+  const tags: string[] = [];
+  tags.push(s.type === 2 ? "Dynasty" : s.type === 1 ? "Keeper" : "Redraft");
+  const rec = l.scoring_settings?.rec ?? 0;
+  tags.push(rec >= 1 ? "PPR" : rec >= 0.5 ? "Half PPR" : "Std");
+  if (l.roster_positions.includes("SUPER_FLEX")) tags.push("SF");
+  if (s.best_ball) tags.push("Best ball");
+  if (s.league_average_match) tags.push("Median");
+  return tags;
+}
+
+export const points = (r: Roster) => (r.settings.fpts ?? 0) + (r.settings.fpts_decimal ?? 0) / 100;
+
+// Standing by wins, then points scored (Sleeper's default tiebreak).
+export function rankOf(rosters: Roster[], mine: Roster): number {
+  const sorted = [...rosters].sort(
+    (a, b) => b.settings.wins - a.settings.wins || points(b) - points(a),
+  );
+  return sorted.findIndex((r) => r.roster_id === mine.roster_id) + 1;
+}
+
+export const ordinal = (n: number) => {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};

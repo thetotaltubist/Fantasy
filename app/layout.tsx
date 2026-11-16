@@ -9,18 +9,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="min-h-screen">
         <header className="border-b line" style={{ background: "var(--card)" }}>
-          <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between">
+          <div className="mx-auto max-w-5xl px-4 h-12 flex items-center justify-between">
             <Link href="/" className="font-bold text-lg tracking-tight">
               Fantasy<span style={{ color: "var(--brand)" }}>HQ</span>
             </Link>
             <nav className="text-sm muted flex gap-5">
               <Link href="/">My leagues</Link>
-              <span title="Coming soon">Rankings</span>
-              <span title="Coming soon">Waivers</span>
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main className="mx-auto max-w-5xl px-4 py-5">{children}</main>
       </body>
     </html>
   );
