@@ -15,3 +15,10 @@ export function same(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+// For API routes, which the private layout does not cover.
+export async function isSignedIn(cookieValue: string | undefined): Promise<boolean> {
+  const pw = process.env.SITE_PASSWORD;
+  if (!pw) return process.env.NODE_ENV !== "production";
+  return same(cookieValue ?? "", await tokenFor(pw));
+}
