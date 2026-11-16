@@ -65,7 +65,10 @@ async function get(path: string): Promise<J> {
   const res = await fetch(`${API}${path}${path.includes("?") ? "&" : "?"}format=json`, {
     headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 300 },
   });
-  if (!res.ok) throw new Error(`Yahoo ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 200);
+    throw new Error(`Yahoo ${path} failed: ${res.status} ${body}`);
+  }
   return (await res.json()).fantasy_content;
 }
 
@@ -92,29 +95,33 @@ export type YahooTeam = {
 };
 
 export async function getMyTeams(): Promise<YahooTeam[]> {
-  const [leaguesFc, teamsFc] = await Promise.all([
-    get("/users;use_login=1/games;game_keys=nfl/leagues"),
-    get("/users;use_login=1/games;game_keys=nfl/teams;out=standings"),
-  ]);
-  const leagueGame = list(list(leaguesFc.users, "user")[0]?.[1]?.games, "game")[0];
-  const leagues = list(leagueGame?.[1]?.leagues, "league").map((l: J) => merge(l));
-  const byKey = new Map(leagues.map((l: J) => [l.league_key, l]));
-
+  // The plain teams list is the essential request. League names and standings
+  // are extras: if Yahoo refuses one, the page still shows your teams.
+  const teamsFc = await get("/users;use_login=1/games;game_keys=nfl/teams");
   const teamGame = list(list(teamsFc.users, "user")[0]?.[1]?.games, "game")[0];
-  return list(teamGame?.[1]?.teams, "team").map((t: J) => {
-    const meta = merge(t[0]);
-    const st = merge(t.slice(1)).team_standings ?? {};
+  const metas: J[] = list(teamGame?.[1]?.teams, "team").map((t: J) => merge(t[0]));
+
+  return Promise.all(metas.map(async (meta) => {
     const leagueKey = String(meta.team_key).replace(/\.t\.\d+$/, "");
-    const lg: J = byKey.get(leagueKey) ?? {};
+    let lg: J = {}, st: J = {};
+    try {
+      const fc = await get(`/league/${leagueKey}/standings`);
+      lg = merge(fc.league?.[0]);
+      const teams = list(merge(fc.league?.slice(1)).standings?.["0"]?.teams, "team");
+      const mine = teams.find((t: J) => merge(t[0]).team_key === meta.team_key);
+      if (mine) st = merge(mine.slice(1)).team_standings ?? {};
+    } catch {
+      try { lg = merge((await get(`/league/${leagueKey}`)).league); } catch { /* keep going */ }
+    }
     const o = st.outcome_totals ?? {};
     return {
-      teamKey: meta.team_key, leagueKey, leagueName: lg.name ?? leagueKey,
+      teamKey: meta.team_key, leagueKey, leagueName: lg.name ?? "Yahoo league",
       teamName: meta.name ?? "My team", numTeams: Number(lg.num_teams ?? 0),
       wins: Number(o.wins ?? 0), losses: Number(o.losses ?? 0), ties: Number(o.ties ?? 0),
       rank: st.rank ? Number(st.rank) : null, pointsFor: Number(st.points_for ?? 0),
       scoring: lg.scoring_type === "head" ? "H2H" : lg.scoring_type ?? "", url: meta.url,
     };
-  });
+  }));
 }
 
 export type YahooPlayer = {
