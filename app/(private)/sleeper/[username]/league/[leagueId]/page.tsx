@@ -7,7 +7,7 @@ import {
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
 import { tradeIdeas } from "@/lib/trades";
-import { getEcr, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
+import { getEcr, getRos, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
 import { setRosConsensus } from "@/lib/experts";
 import { expertSource } from "@/lib/experts";
 import { getLines, vegasMultiplier } from "@/lib/odds";
@@ -107,8 +107,8 @@ export default async function LeaguePage({ params, searchParams }: {
   const vegas = (id: string) => Math.round((withVegas(id) - base(id)) * 10) / 10;
   // Expert consensus from FantasyPros: weekly ranks for start-sit, rest-of-season for waivers and trades.
   const sk = scoringKey(scoring);
-  const [weekly, ros] = await Promise.all([getEcr(state.season, "weekly", week, sk), getEcr(state.season, "ros", 0, "HALF")]);
-  setRosConsensus(ros);
+  const [weekly, ros] = await Promise.all([getEcr(state.season, week, sk), getRos(state.season)]);
+  setRosConsensus(ros.others, ros.dell);
   const pts = blendWeekly(Object.keys(projections), players, withVegas, weekly);
   const weeklyUsed = weekly.experts >= MIN_EXPERTS;
   const hasLines = Object.keys(lines.teams).length > 0;
@@ -205,7 +205,7 @@ export default async function LeaguePage({ params, searchParams }: {
           </>
         )}
         <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}.{" "}
-          {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus (${weekly.top20 === "all" ? "the 20 most accurate experts at each position" : weekly.top20 === "some" ? "the 20 most accurate experts where enough have posted, everyone elsewhere" : `all ${weekly.experts} experts who have posted, since the top 20 haven't yet`}, updated ${weekly.updated})${weekly.dell ? ", with Chris Dell's list counted as half of that" : ""}.`
+          {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus (${weekly.top20 === "all" ? "the 20 most accurate experts at each position" : weekly.top20 === "some" ? "the 20 most accurate experts where enough have posted, everyone elsewhere" : `all ${weekly.experts} experts who have posted, since the top 20 haven't yet`}, updated ${weekly.updated}).`
             : weekly.experts > 0 ? `Only ${weekly.experts} FantasyPros experts have ranked this week so far, so their consensus joins in once at least ${MIN_EXPERTS} have.`
             : "FantasyPros weekly rankings aren't loaded."}</p>
       </section>

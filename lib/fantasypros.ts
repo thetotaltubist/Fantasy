@@ -8,8 +8,8 @@ export type Ecr = {
   depth: Record<string, number>;       // how many players are ranked at each position
   experts: number;                     // fewest experts behind any skill position
   updated: string;
+  complete?: boolean;                  // every position came back
   top20?: "all" | "some" | "none";  // whether the 20 most accurate experts per position were used
-  dell?: boolean;                      // Chris Dell's own list is mixed in
 };
 const EMPTY: Ecr = { ranks: new Map(), depth: {}, experts: 0, updated: "" };
 const TEAM_FIX: Record<string, string> = { JAC: "JAX", WSH: "WAS", LVR: "LV" };
@@ -21,7 +21,7 @@ export const scoringKey = (s: Record<string, number> | undefined) => {
   return rec >= 1 ? "PPR" : rec >= 0.5 ? "HALF" : "STD";
 };
 
-async function pull(season: string, type: "weekly" | "ros", week: number, scoring: string, filters?: string): Promise<Ecr> {
+async function pullFresh(season: string, type: "weekly" | "ros", week: number, scoring: string, filters?: string): Promise<Ecr> {
   const key = process.env.FANTASYPROS_API_KEY;
   if (!key) return EMPTY;
   const positions = type === "ros" ? ["QB", "RB", "WR", "TE"] : ["QB", "RB", "WR", "TE", "K", "DST"];
@@ -33,13 +33,13 @@ async function pull(season: string, type: "weekly" | "ros", week: number, scorin
     try {
       const get = async (extra: string) => {
         const res = await fetch(`https://api.fantasypros.com/public/v2/json/nfl/${season}/consensus-rankings?${q}${extra}`, {
-          headers: { "x-api-key": key }, next: { revalidate: 3 * 3600 },
+          headers: { "x-api-key": key }, cache: "no-store",
         });
         return res.ok ? ((await res.json()) as Resp) : null;
       };
       // Prefer the 20 most accurate experts at this position; if too few of them have
       // posted yet, fall back to everyone.
-      let d = filters ? null : await get("&accuracy=top20");
+      let d = filters ? null : await get(`&accuracy=${type === "ros" ? "top10" : "top20"}`);
       if (d && (d.total_experts ?? 0) >= MIN_EXPERTS) top += 1;
       else d = await get("");
       if (!d) return;
@@ -56,20 +56,31 @@ async function pull(season: string, type: "weekly" | "ros", week: number, scorin
   }));
   if (!Number.isFinite(out.experts)) out.experts = 0;
   out.top20 = top === positions.length ? "all" : top > 0 ? "some" : "none";
+  out.complete = positions.every((p) => out.depth[p === "DST" ? "DEF" : p]);
   return out;
 }
 
-// Everyone's consensus, with Chris Dell's own list (FantasyPros expert 3556) averaged in
-// at equal weight wherever he has ranked the player.
-const DELL = "3556:3556";
-export async function getEcr(season: string, type: "weekly" | "ros", week: number, scoring: string): Promise<Ecr> {
-  const [all, dell] = await Promise.all([pull(season, type, week, scoring), pull(season, type, week, scoring, DELL)]);
-  if (!dell.ranks.size) return all;
-  const ranks = new Map(all.ranks);
-  for (const [k, r] of dell.ranks) { const a = all.ranks.get(k); ranks.set(k, a == null ? r : (a + r) / 2); }
-  const depth = { ...all.depth };
-  for (const [p, n] of Object.entries(dell.depth)) depth[p] = Math.max(depth[p] ?? 0, n);
-  return { ranks, depth, top20: all.top20, experts: all.experts + 1, updated: all.updated > dell.updated ? all.updated : dell.updated, dell: true };
+// Keep the last good answer in memory: complete pulls for three hours, partial ones
+// (a position failed, e.g. a rate limit) for two minutes, and never replace good with worse.
+const memo = new Map<string, { at: number; ecr: Ecr }>();
+async function pull(season: string, type: "weekly" | "ros", week: number, scoring: string, filters?: string): Promise<Ecr> {
+  const k = [season, type, week, scoring, filters ?? ""].join("|");
+  const hit = memo.get(k);
+  if (hit && Date.now() - hit.at < (hit.ecr.complete ? 3 * 3600_000 : 120_000)) return hit.ecr;
+  const fresh = await pullFresh(season, type, week, scoring, filters);
+  if (hit && hit.ecr.ranks.size > fresh.ranks.size && !fresh.complete) { memo.set(k, { at: Date.now() - (hit.ecr.complete ? 3 * 3600_000 - 120_000 : 0), ecr: hit.ecr }); return hit.ecr; }
+  memo.set(k, { at: Date.now(), ecr: fresh });
+  return fresh;
+}
+
+// Weekly: the most accurate experts at each position.
+export const getEcr = (season: string, week: number, scoring: string) => pull(season, "weekly", week, scoring);
+
+// Rest of season: the consensus (ten most accurate if enough have posted, else everyone)
+// and, separately, Chris Dell's own list (FantasyPros expert 3556).
+export async function getRos(season: string) {
+  const [others, dell] = await Promise.all([pull(season, "ros", 0, "HALF"), pull(season, "ros", 0, "HALF", "3556:3556")]);
+  return { others, dell };
 }
 
 export function ecrRank(ecr: Ecr, id: string, p: Player | undefined): number | null {

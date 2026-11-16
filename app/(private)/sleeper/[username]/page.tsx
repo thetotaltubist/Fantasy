@@ -42,7 +42,7 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
       const team = pos === "DEF" ? id : players[id]?.team ?? "";
       return projectPoints(projections[id], l.scoring_settings ?? {}) * vegasMultiplier(lines, team, pos, projections[id]?.opponent ?? null);
     };
-    const weekly = await getEcr(state.season, "weekly", state.week, scoringKey(l.scoring_settings));
+    const weekly = await getEcr(state.season, state.week, scoringKey(l.scoring_settings));
     const pts = blendWeekly(Object.keys(projections), players, raw, weekly);
     const advice = adviseLineup({
       slots: l.roster_positions.filter((s) => s !== "BN" && s !== "IR" && s !== "TAXI"),
