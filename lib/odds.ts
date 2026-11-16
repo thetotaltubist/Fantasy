@@ -1,6 +1,6 @@
 // Vegas game lines from The Odds API, turned into each team's expected points.
 // implied team points = (game total / 2) - (team spread / 2)
-const NAMES: Record<string, string> = {
+export const NAMES: Record<string, string> = {
   "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL", "Buffalo Bills": "BUF",
   "Carolina Panthers": "CAR", "Chicago Bears": "CHI", "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE",
   "Dallas Cowboys": "DAL", "Denver Broncos": "DEN", "Detroit Lions": "DET", "Green Bay Packers": "GB",

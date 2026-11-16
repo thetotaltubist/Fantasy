@@ -7,6 +7,7 @@ import {
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
 import { tradeIdeas } from "@/lib/trades";
+import { getProps, applyProps } from "@/lib/props";
 import { getMatchups, outlook, LAST_WEEK } from "@/lib/matchups";
 import { getEcr, getRos, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
 import { setRosConsensus } from "@/lib/experts";
@@ -107,6 +108,9 @@ export default async function LeaguePage({ params, searchParams }: {
   let projError = false;
   try { projections = await getProjections(state.season, week); } catch { projError = true; }
   const scoring = league.scoring_settings ?? {};
+  // Player props (yards, catches, touchdown odds) pull each projected stat halfway to the betting line.
+  const propped = applyProps(projections, players, await getProps());
+  projections = propped.projections;
   const lines = await getLines();
   const teamFor = (id: string) => (/^[A-Z]{2,3}$/.test(id) && !players[id]?.team ? id : players[id]?.team ?? "");
   const base = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], scoring));
@@ -227,6 +231,7 @@ export default async function LeaguePage({ params, searchParams }: {
           </>
         )}
         <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}.{" "}
+          {propped.used > 0 ? `Player prop lines (yards, catches, touchdown odds) adjust ${propped.used} players this week. ` : ""}
           {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus (${weekly.top20 === "all" ? "the 20 most accurate experts at each position" : weekly.top20 === "some" ? "the 20 most accurate experts where enough have posted, everyone elsewhere" : `all ${weekly.experts} experts who have posted, since the top 20 haven't yet`}, updated ${weekly.updated}).`
             : weekly.experts > 0 ? `Only ${weekly.experts} FantasyPros experts have ranked this week so far, so their consensus joins in once at least ${MIN_EXPERTS} have.`
             : "FantasyPros weekly rankings aren't loaded."}</p>

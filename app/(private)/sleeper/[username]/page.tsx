@@ -6,6 +6,7 @@ import {
   type LeagueFull,
 } from "@/lib/sleeper";
 import { getLines, vegasMultiplier } from "@/lib/odds";
+import { getProps, applyProps } from "@/lib/props";
 import { getEcr, blendWeekly, scoringKey } from "@/lib/fantasypros";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
@@ -21,6 +22,7 @@ export default async function Leagues({ params }: { params: Promise<{ username: 
   let projections: Record<string, Proj> = {};
   try { projections = await getProjections(state.season, state.week); } catch { /* show page without advice */ }
 
+  projections = applyProps(projections, players, await getProps()).projections;
   const lines = await getLines();
   const lockedTeams = await getLockedTeams(state.season, state.week);
   const locked = (id: string) => lockedTeams.has(positionOf(id, players[id]) === "DEF" ? id : players[id]?.team ?? "");
