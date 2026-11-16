@@ -28,10 +28,10 @@ function bestTotal(slots: string[], ids: string[], pos: (id: string) => string, 
 
 export function tradeIdeas(opts: {
   rosters: Roster[]; mine: Roster; players: Record<string, Player>;
-  weeks: Record<string, Proj>[]; scoring: Record<string, number>; slots: string[]; limit?: number;
+  weeks: Record<string, Proj>[]; scoring: Record<string, number>; slots: string[]; tilt?: (id: string) => number; limit?: number;
 }): TradeIdea[] {
   const { rosters, mine, players, weeks, scoring, slots } = opts;
-  const { value } = makeValuer(players, weeks, scoring);
+  const { value } = makeValuer(players, weeks, scoring, opts.tilt);
   const cache = new Map<string, number>();
   const val = (id: string) => { let v = cache.get(id); if (v === undefined) { v = value(id); cache.set(id, v); } return v; };
   const pos = (id: string) => positionOf(id, players[id]);

@@ -7,7 +7,8 @@ import { expertRank, expertDepth } from "@/lib/experts";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export function makeValuer(players: Record<string, Player>, weeks: Record<string, Proj>[], scoring: Record<string, number>) {
+export function makeValuer(players: Record<string, Player>, weeks: Record<string, Proj>[], scoring: Record<string, number>,
+  tilt?: (id: string) => number) {   // optional multiplier, e.g. for soft playoff matchups
   // Average projected points per game over the weeks the player actually plays.
   const avg = (id: string) => {
     if (isBad(players[id])) return 0;
@@ -31,7 +32,7 @@ export function makeValuer(players: Record<string, Player>, weeks: Record<string
     const pr = projRank[id] ?? ladder.length;
     const er = expertRank(players[id])?.rank ?? expertDepth[pos] + 15;   // unranked = below the list
     const blended = Math.min(ladder.length, Math.max(1, Math.round((pr + er) / 2)));
-    return ladder[blended - 1] ?? 0;
+    return Math.round((ladder[blended - 1] ?? 0) * (tilt?.(id) ?? 1) * 10) / 10;
   };
   return { avg, value };
 }

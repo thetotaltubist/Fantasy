@@ -65,7 +65,7 @@ export const avatarUrl = (id: string | null) => (id ? `https://sleepercdn.com/av
 // ---------- Summaries used by the compact pages ----------
 
 export type LeagueSettings = {
-  type?: number; best_ball?: number; league_average_match?: number;
+  type?: number; best_ball?: number; league_average_match?: number; playoff_week_start?: number;
 };
 export type LeagueFull = League & { settings?: LeagueSettings };
 

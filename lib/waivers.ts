@@ -16,13 +16,13 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 export function waiverPicks(opts: {
   rosters: Roster[]; mine: Roster; players: Record<string, Player>;
   weeks: Record<string, Proj>[];         // projections for this week and the next two
-  scoring: Record<string, number>; slots: string[]; trending: Set<string>; limit?: number;
+  scoring: Record<string, number>; slots: string[]; tilt?: (id: string) => number; trending: Set<string>; limit?: number;
 }): WaiverPick[] {
   const { rosters, mine, players, weeks, scoring, slots, trending } = opts;
   const owned = new Set<string>();
   for (const r of rosters) for (const id of [...(r.players ?? []), ...(r.reserve ?? []), ...(r.taxi ?? [])]) owned.add(id);
 
-  const { value } = makeValuer(players, weeks, scoring);
+  const { value } = makeValuer(players, weeks, scoring, opts.tilt);
   const now = (id: string) => (isBad(players[id]) ? 0 : projectPoints(weeks[0]?.[id], scoring));
 
   const used = new Set(slots.filter((s) => s !== "BN"));

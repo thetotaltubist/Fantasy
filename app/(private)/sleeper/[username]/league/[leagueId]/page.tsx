@@ -7,6 +7,7 @@ import {
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
 import { tradeIdeas } from "@/lib/trades";
+import { getMatchups, outlook, LAST_WEEK } from "@/lib/matchups";
 import { getEcr, getRos, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
 import { setRosConsensus } from "@/lib/experts";
 import { expertSource } from "@/lib/experts";
@@ -70,6 +71,13 @@ function Group({ title, ids, players, open }: { title: string; ids: string[]; pl
   );
 }
 
+const pct = (f: number) => { const n = Math.round((f - 1) * 100); return `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n)}%`; };
+const tone = (f: number) => (f >= 1.05 ? "#16a34a" : f <= 0.95 ? "#dc2626" : "inherit");
+function Chip({ opp, factor }: { opp: string | null; factor: number | null }) {
+  if (!opp || factor == null) return <td className="px-1 text-xs muted whitespace-nowrap">BYE</td>;
+  return <td className="px-1 text-xs whitespace-nowrap tabular-nums"><span className="muted">{opp}</span> <span style={{ color: tone(factor) }}>{pct(factor)}</span></td>;
+}
+
 export default async function LeaguePage({ params, searchParams }: {
   params: Promise<{ username: string; leagueId: string }>; searchParams: Promise<{ week?: string }>;
 }) {
@@ -119,12 +127,26 @@ export default async function LeaguePage({ params, searchParams }: {
     getProjections(state.season, Math.min(18, week + 2)).catch(() => ({})),
     getTrending(),
   ]);
+  // Matchups: points over expectation allowed by each defense, and the schedule ahead.
+  const matchups = await getMatchups(state.season, state.week).catch(() => null);
+  const playoffStart = Math.min(LAST_WEEK, Math.max(state.week, league.settings?.playoff_week_start || 15));
+  const playoffWeeks = Array.from({ length: LAST_WEEK - playoffStart + 1 }, (_, i) => playoffStart + i);
+  const nextWeeks = [state.week, state.week + 1, state.week + 2].filter((w) => w < playoffStart);
+  const SKILL = ["QB", "RB", "WR", "TE"];
+  const look = (id: string, weeks: number[]) => outlook(matchups!, players[id]?.team, positionOf(id, players[id]), weeks);
+  // A player with soft playoff matchups is worth a bit more in waivers and trades (30% of the edge).
+  const tilt = (id: string) =>
+    matchups && SKILL.includes(positionOf(id, players[id])) ? 1 + 0.3 * (look(id, playoffWeeks).avg - 1) : 1;
+  const sched = !matchups ? [] : [...starters.filter((id) => id !== "0"), ...bench]
+    .filter((id) => SKILL.includes(positionOf(id, players[id])) && players[id]?.team)
+    .map((id) => ({ id, next: look(id, nextWeeks).list, po: look(id, playoffWeeks) }))
+    .sort((a, b) => b.po.avg - a.po.avg);
   const picks = projError ? [] : waiverPicks({
     rosters, mine, players, weeks: [projections, next1, next2], scoring,
-    slots: league.roster_positions, trending,
+    slots: league.roster_positions, trending, tilt,
   });
   const trades = projError ? [] : tradeIdeas({
-    rosters, mine, players, weeks: [projections, next1, next2], scoring, slots: league.roster_positions,
+    rosters, mine, players, weeks: [projections, next1, next2], scoring, slots: league.roster_positions, tilt,
   });
   const ownerName = (rosterId: number) => {
     const r = rosters.find((x) => x.roster_id === rosterId);
@@ -260,6 +282,34 @@ export default async function LeaguePage({ params, searchParams }: {
         <p className="text-[11px] muted mt-2">Each idea swaps a player you can spare for one who would start for you, where the other team&apos;s starting lineup improves too. The green number is points per game added to your lineup. Injured players are left out.
           {league.settings?.type === 2 ? " Dynasty league: this ignores age and draft picks." : ""}</p>
       </section>
+
+      {sched.length > 0 && (
+        <section className="card px-4 py-3 mt-3">
+          <h2 className="text-sm font-semibold">Schedule ahead</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm mt-1">
+              <thead>
+                <tr className="text-[11px] muted text-left">
+                  <th className="font-normal py-1">Player</th>
+                  {nextWeeks.map((w) => <th key={w} className="font-normal px-1">Wk {w}</th>)}
+                  {playoffWeeks.map((w) => <th key={w} className="font-semibold px-1">Wk {w}</th>)}
+                  <th className="font-normal text-right">Playoffs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sched.map((r) => (
+                  <tr key={r.id} className="border-t line">
+                    <td className="py-1.5 pr-2 whitespace-nowrap">{name(r.id)} <span className="muted text-xs">{positionOf(r.id, players[r.id])}</span></td>
+                    {[...r.next, ...r.po.list].map((g) => <Chip key={g.week} opp={g.opp} factor={g.factor} />)}
+                    <td className="text-right font-semibold tabular-nums" style={{ color: tone(r.po.avg) }}>{pct(r.po.avg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] muted mt-2">Each number is how many more or fewer fantasy points that defense has allowed to the position than those same players usually score, over {matchups!.weeksUsed} weeks this season. Green is a soft matchup, red is a tough one. Playoffs is the average for weeks {playoffWeeks[0]} to {LAST_WEEK}, and it nudges waiver and trade values a little.</p>
+        </section>
+      )}
 
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         <section className="card px-4 py-3">
