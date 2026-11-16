@@ -7,6 +7,8 @@ import {
 } from "@/lib/sleeper";
 import { waiverPicks, getTrending } from "@/lib/waivers";
 import { tradeIdeas } from "@/lib/trades";
+import { getEcr, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
+import { setRosConsensus } from "@/lib/experts";
 import { expertSource } from "@/lib/experts";
 import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
@@ -101,8 +103,14 @@ export default async function LeaguePage({ params, searchParams }: {
   const teamFor = (id: string) => (/^[A-Z]{2,3}$/.test(id) && !players[id]?.team ? id : players[id]?.team ?? "");
   const base = (id: string) => (isBad(players[id]) ? 0 : projectPoints(projections[id], scoring));
   const mult = (id: string) => vegasMultiplier(lines, teamFor(id), positionOf(id, players[id]), projections[id]?.opponent ?? null);
-  const pts = (id: string) => Math.round(base(id) * mult(id) * 10) / 10;
-  const vegas = (id: string) => Math.round((pts(id) - base(id)) * 10) / 10;
+  const withVegas = (id: string) => Math.round(base(id) * mult(id) * 10) / 10;
+  const vegas = (id: string) => Math.round((withVegas(id) - base(id)) * 10) / 10;
+  // Expert consensus from FantasyPros: weekly ranks for start-sit, rest-of-season for waivers and trades.
+  const sk = scoringKey(scoring);
+  const [weekly, ros] = await Promise.all([getEcr(state.season, "weekly", week, sk), getEcr(state.season, "ros", 0, "HALF")]);
+  setRosConsensus(ros);
+  const pts = blendWeekly(Object.keys(projections), players, withVegas, weekly);
+  const weeklyUsed = weekly.experts >= MIN_EXPERTS;
   const hasLines = Object.keys(lines.teams).length > 0;
 
   // Waivers: best unrostered players over the next three weeks vs. your weakest bench spots.
@@ -196,7 +204,10 @@ export default async function LeaguePage({ params, searchParams }: {
             </ul>
           </>
         )}
-        <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}. Your expert rankings get blended in next.</p>
+        <p className="text-[11px] muted mt-2">Projections from Sleeper (Rotowire), scored with this league&apos;s rules{hasLines ? ", then nudged by Vegas spreads and totals (▲▼ shows the change)" : ""}.{" "}
+          {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus of ${weekly.experts} experts (updated ${weekly.updated}).`
+            : weekly.experts > 0 ? `Only ${weekly.experts} FantasyPros experts have ranked this week so far, so their consensus joins in once at least ${MIN_EXPERTS} have.`
+            : "FantasyPros weekly rankings aren't loaded."}</p>
       </section>
 
       <section className="card px-4 py-3 mt-3">
@@ -218,7 +229,7 @@ export default async function LeaguePage({ params, searchParams }: {
           </ul>
         )}
         <p className="text-[11px] muted mt-2">Value blends projected points over the next three weeks with{" "}
-          {expertSource.count ? `the ${expertSource.name} (${expertSource.asOf})` : "expert rankings once uploaded"}. HOT means lots of Sleeper managers added the player in the last day.
+          {expertSource.count ? expertSource.label : "expert rankings once uploaded"}. HOT means lots of Sleeper managers added the player in the last day.
           {league.settings?.type === 2 ? " Dynasty league: this only looks at the next few weeks, so weigh long-term value before dropping young players." : ""}</p>
       </section>
 
