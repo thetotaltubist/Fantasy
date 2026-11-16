@@ -19,7 +19,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         </div>
       </form>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs muted text-center">
-        <div className="card p-3">ESPN: coming soon</div>
+        <a href="/espn" className="card p-3 underline">Connect ESPN</a>
         <div className="card p-3">Yahoo: waiting on Yahoo approval</div>
       </div>
     </div>

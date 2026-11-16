@@ -14,7 +14,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               Fantasy<span style={{ color: "var(--brand)" }}>HQ</span>
             </Link>
             <nav className="text-sm muted flex gap-5">
-              <Link href="/">My leagues</Link>
+              <Link href="/">Sleeper</Link>
+              <Link href="/espn">ESPN</Link>
             </nav>
           </div>
         </header>
