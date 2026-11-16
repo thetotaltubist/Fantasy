@@ -14,7 +14,7 @@ const byKey = new Map<string, Row>();
 for (const r of data.players) byKey.set(`${norm(r.name)}|${r.pos}`, r);
 
 // A second source: the FantasyPros rest-of-season consensus, loaded at request time.
-let consensus: { ranks: Map<string, number>; depth: Record<string, number>; experts: number; updated: string; dell?: boolean } | null = null;
+let consensus: { ranks: Map<string, number>; depth: Record<string, number>; experts: number; updated: string; dell?: boolean; top20?: string } | null = null;
 export function setRosConsensus(c: typeof consensus) { consensus = c && c.ranks.size ? c : null; }
 
 export const expertSource = {

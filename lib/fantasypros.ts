@@ -8,6 +8,7 @@ export type Ecr = {
   depth: Record<string, number>;       // how many players are ranked at each position
   experts: number;                     // fewest experts behind any skill position
   updated: string;
+  top20?: "all" | "some" | "none";  // whether the 20 most accurate experts per position were used
   dell?: boolean;                      // Chris Dell's own list is mixed in
 };
 const EMPTY: Ecr = { ranks: new Map(), depth: {}, experts: 0, updated: "" };
@@ -25,15 +26,23 @@ async function pull(season: string, type: "weekly" | "ros", week: number, scorin
   if (!key) return EMPTY;
   const positions = type === "ros" ? ["QB", "RB", "WR", "TE"] : ["QB", "RB", "WR", "TE", "K", "DST"];
   const out: Ecr = { ranks: new Map(), depth: {}, experts: Infinity, updated: "" };
+  let top = 0;
   await Promise.all(positions.map(async (pos) => {
     const sc = ["RB", "WR", "TE"].includes(pos) ? scoring : "STD";   // scoring only changes these three
     const q = (type === "ros" ? `position=${pos}&scoring=${sc}&week=0&type=ros` : `position=${pos}&scoring=${sc}&week=${week}`) + (filters ? `&filters=${filters}` : "");
     try {
-      const res = await fetch(`https://api.fantasypros.com/public/v2/json/nfl/${season}/consensus-rankings?${q}`, {
-        headers: { "x-api-key": key }, next: { revalidate: 3 * 3600 },
-      });
-      if (!res.ok) return;
-      const d = (await res.json()) as Resp;
+      const get = async (extra: string) => {
+        const res = await fetch(`https://api.fantasypros.com/public/v2/json/nfl/${season}/consensus-rankings?${q}${extra}`, {
+          headers: { "x-api-key": key }, next: { revalidate: 3 * 3600 },
+        });
+        return res.ok ? ((await res.json()) as Resp) : null;
+      };
+      // Prefer the 20 most accurate experts at this position; if too few of them have
+      // posted yet, fall back to everyone.
+      let d = filters ? null : await get("&accuracy=top20");
+      if (d && (d.total_experts ?? 0) >= MIN_EXPERTS) top += 1;
+      else d = await get("");
+      if (!d) return;
       if (filters && (d.total_experts ?? 0) !== 1) return;   // the filter was ignored: he hasn't posted yet
       const mine = pos === "DST" ? "DEF" : pos;
       for (const p of d.players ?? []) {
@@ -46,6 +55,7 @@ async function pull(season: string, type: "weekly" | "ros", week: number, scorin
     } catch { /* leave this position out */ }
   }));
   if (!Number.isFinite(out.experts)) out.experts = 0;
+  out.top20 = top === positions.length ? "all" : top > 0 ? "some" : "none";
   return out;
 }
 
@@ -59,7 +69,7 @@ export async function getEcr(season: string, type: "weekly" | "ros", week: numbe
   for (const [k, r] of dell.ranks) { const a = all.ranks.get(k); ranks.set(k, a == null ? r : (a + r) / 2); }
   const depth = { ...all.depth };
   for (const [p, n] of Object.entries(dell.depth)) depth[p] = Math.max(depth[p] ?? 0, n);
-  return { ranks, depth, experts: all.experts + 1, updated: all.updated > dell.updated ? all.updated : dell.updated, dell: true };
+  return { ranks, depth, top20: all.top20, experts: all.experts + 1, updated: all.updated > dell.updated ? all.updated : dell.updated, dell: true };
 }
 
 export function ecrRank(ecr: Ecr, id: string, p: Player | undefined): number | null {
