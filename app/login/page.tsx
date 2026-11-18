@@ -9,6 +9,7 @@ async function signIn(formData: FormData) {
   let next = String(formData.get("next") ?? "/");
   if (!next.startsWith("/") || next.startsWith("//")) next = "/";
   if (!password || !same(await tokenFor(given), await tokenFor(password))) {
+    await new Promise((r) => setTimeout(r, 2000));   // slow down guessing
     redirect(`/login?error=1&next=${encodeURIComponent(next)}`);
   }
   (await cookies()).set(AUTH_COOKIE, await tokenFor(password), {
