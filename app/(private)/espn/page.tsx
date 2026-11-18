@@ -25,6 +25,18 @@ async function save(formData: FormData) {
   redirect("/espn");
 }
 
+async function addFound(formData: FormData) {
+  "use server";
+  const jar = await cookies();
+  const old = parseCreds(jar.get(ESPN_COOKIE)?.value);
+  if (!old) redirect("/espn");
+  const more = String(formData.get("ids") ?? "").split(",").map((x) => x.replace(/\D/g, "")).filter(Boolean);
+  jar.set(ESPN_COOKIE, JSON.stringify({ ...old, ids: [...new Set([...old.ids, ...more])] }), {
+    httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365,
+  });
+  redirect("/espn");
+}
+
 async function disconnect() {
   "use server";
   (await cookies()).delete(ESPN_COOKIE);
@@ -67,7 +79,8 @@ export default async function EspnPage({ searchParams }: { searchParams: Promise
   const [state, players] = await Promise.all([getNflState(), getPlayers()]);
   const results = await Promise.all(creds.ids.map((id) => getEspnLeague(id, state.season, creds, players)));
   // A plain readout of what ESPN said, to make problems easy to spot.
-  const lookup = creds.ids.length && results.every((r) => r.ok) ? null : await discoverLeagues(creds.s2, creds.swid, state.season);
+  const lookup = await discoverLeagues(creds.s2, creds.swid, state.season);
+  const extra = lookup.ids.filter((id) => !creds.ids.includes(id));
   const shape = `espn_s2 is ${creds.s2.length} characters${creds.s2.includes("%") ? " (escaped form)" : ""}; SWID is ${creds.swid.length} characters${/^\{[0-9A-Fa-f-]{36}\}$/.test(creds.swid) ? "" : " (unusual shape: expected 38 with the curly braces)"}.`;
   return (
     <div>
@@ -85,9 +98,16 @@ export default async function EspnPage({ searchParams }: { searchParams: Promise
         ))}
       </div>
       {results.length === 0 && <p className="card px-4 py-3 mt-3 text-sm">Your codes are saved, but no leagues were found yet.</p>}
+      {extra.length > 0 && (
+        <form action={addFound} className="card px-4 py-3 mt-3 text-sm flex flex-wrap items-center justify-between gap-2">
+          <span>Found {extra.length} more ESPN league{extra.length > 1 ? "s" : ""} on your account.</span>
+          <input type="hidden" name="ids" value={extra.join(",")} />
+          <button className="btn">Add {extra.length > 1 ? "them" : "it"}</button>
+        </form>
+      )}
       {lookup && (
         <div className="card px-4 py-3 mt-3 text-xs">
-          <p className="font-semibold text-sm">What ESPN answered</p>
+          <p className="font-semibold text-sm">Find all my leagues: what ESPN answered</p>
           <p className="mt-1">{lookup.note}</p>
           <p className="mt-1 muted">{shape}</p>
         </div>

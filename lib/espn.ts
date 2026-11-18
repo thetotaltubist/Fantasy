@@ -36,22 +36,31 @@ export type Discovery = { ids: string[]; note: string };
 export async function discoverLeagues(s2: string, swid: string, season: string): Promise<Discovery> {
   if (!s2 || !swid) return { ids: [], note: "Both codes are needed to look up your leagues." };
   try {
-    const res = await espnFetch(
-      `https://fan.espn.com/apis/v2/fans/${encodeURIComponent(swid)}?displayHiddenPrefs=true&context=fantasy&useCookieAuth=true&source=fantasyapp-ios&featureFlags=challengeEntries`,
-      s2, swid,
-    );
-    if (!res.ok) return { ids: [], note: `ESPN's account lookup answered ${res.status}.` };
+    // Try the address with the curly braces escaped, then plain, then without them.
+    const q = "displayHiddenPrefs=true&context=fantasy&useCookieAuth=true&source=fantasyapp-ios&featureFlags=challengeEntries";
+    const tries = [encodeURIComponent(swid), swid, swid.replace(/[{}]/g, "")];
+    let res: Response | null = null; const seen: number[] = [];
+    for (const t of tries) {
+      res = await espnFetch(`https://fan.espn.com/apis/v2/fans/${t}?${q}`, s2, swid);
+      seen.push(res.status);
+      if (res.ok) break;
+    }
+    if (!res || !res.ok) {
+      let body = ""; try { body = (await res!.text()).replace(/\s+/g, " ").slice(0, 160); } catch { /* no body */ }
+      return { ids: [], note: `ESPN's account lookup answered ${seen.join(", ")}. ${body}` };
+    }
     const d = (await res.json()) as { preferences?: { metaData?: { entry?: { gameId?: number; abbrev?: string; seasonId?: number; groups?: { groupId?: number }[] } } }[] };
     const ids = new Set<string>();
-    let entries = 0;
+    let entries = 0; const kinds = new Set<string>();
     for (const p of d.preferences ?? []) {
       const e = p.metaData?.entry;
       if (!e) continue;
       entries += 1;
+      kinds.add(`${e.abbrev ?? e.gameId}/${e.seasonId}`);
       if (!(e.gameId === 1 || e.abbrev === "FFL") || String(e.seasonId) !== season) continue;
       for (const g of e.groups ?? []) if (g.groupId) ids.add(String(g.groupId));
     }
-    return { ids: [...ids], note: `ESPN's account lookup worked: ${(d.preferences ?? []).length} items, ${entries} fantasy entries, ${ids.size} football leagues for ${season}.` };
+    return { ids: [...ids], note: `ESPN's account lookup worked: ${(d.preferences ?? []).length} items, ${entries} fantasy entries, ${ids.size} football leagues for ${season}. Kinds seen: ${[...kinds].slice(0, 12).join(", ") || "none"}. Top-level keys: ${Object.keys(d as object).slice(0, 12).join(", ")}.` };
   } catch (err) { return { ids: [], note: `Couldn't reach ESPN's account lookup (${String((err as Error)?.message ?? err).slice(0, 80)}).` }; }
 }
 
