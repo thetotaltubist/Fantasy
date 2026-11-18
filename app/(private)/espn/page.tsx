@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getNflState, getPlayers, record, rankOf, ordinal, points, formatTags } from "@/lib/sleeper";
-import { ESPN_COOKIE, parseCreds, getEspnLeague } from "@/lib/espn";
+import { ESPN_COOKIE, parseCreds, getEspnLeague, discoverLeagues } from "@/lib/espn";
 
 async function save(formData: FormData) {
   "use server";
@@ -15,7 +15,10 @@ async function save(formData: FormData) {
   if (s2.includes("%")) { try { s2 = decodeURIComponent(s2); } catch { /* keep as typed */ } }
   if (swid && !swid.startsWith("{")) swid = `{${swid}}`;
   const creds = { s2: s2 || old?.s2 || "", swid: swid || old?.swid || "", ids: ids.length ? ids : old?.ids ?? [] };
-  if (!creds.ids.length) redirect("/espn?error=ids");
+  // Find every league this ESPN login is in, and add them to any IDs typed by hand.
+  const found = await discoverLeagues(creds.s2, creds.swid, (await getNflState()).season);
+  creds.ids = [...new Set([...creds.ids, ...found])];
+  if (!creds.ids.length) redirect(`/espn?error=${creds.s2 && creds.swid ? "none" : "codes"}`);
   jar.set(ESPN_COOKIE, JSON.stringify(creds), {
     httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365,
   });
@@ -32,17 +35,17 @@ function Form({ ids, has }: { ids?: string; has: boolean }) {
   const input = "mt-1 w-full rounded-[10px] border line px-3 py-2 bg-transparent text-sm";
   return (
     <form action={save} className="mt-3">
-      <label className="block text-sm font-semibold">League IDs
-        <input name="ids" defaultValue={ids} placeholder="e.g. 123456, 987654" className={input} />
-      </label>
-      <p className="text-[11px] muted mt-1">The number after leagueId= in your league&apos;s web address. Separate several with commas.</p>
-      <label className="block text-sm font-semibold mt-3">espn_s2
+      <label className="block text-sm font-semibold">espn_s2
         <input name="s2" type="password" autoComplete="off" placeholder={has ? "Saved. Leave blank to keep it." : "Paste the long code"} className={input} />
       </label>
       <label className="block text-sm font-semibold mt-3">SWID
         <input name="swid" type="password" autoComplete="off" placeholder={has ? "Saved. Leave blank to keep it." : "{XXXXXXXX-XXXX-...}"} className={input} />
       </label>
       <p className="text-[11px] muted mt-1">Both codes are cookies from fantasy.espn.com while you&apos;re logged in. They stay in this browser only and are sent just to ESPN.</p>
+      <label className="block text-sm font-semibold mt-3">League IDs <span className="muted font-normal">(optional)</span>
+        <input name="ids" defaultValue={ids} placeholder="Leave blank to find all your leagues" className={input} />
+      </label>
+      <p className="text-[11px] muted mt-1">Your leagues are found automatically from the two codes. Only add an ID here if one is missing: it&apos;s the number after leagueId= in the league&apos;s web address.</p>
       <button className="btn mt-4">Save</button>
     </form>
   );
@@ -55,8 +58,9 @@ export default async function EspnPage({ searchParams }: { searchParams: Promise
     return (
       <div className="max-w-md mx-auto card p-6">
         <h1 className="text-xl font-bold">Connect ESPN</h1>
-        <p className="muted text-sm mt-1">ESPN has no sign-in for outside sites, so this uses your league IDs and two codes from your ESPN login.</p>
-        {error && <p className="text-sm text-red-500 mt-2">Enter at least one league ID.</p>}
+        <p className="muted text-sm mt-1">ESPN has no sign-in for outside sites, so this uses two codes from your ESPN login to find your leagues.</p>
+        {error === "none" && <p className="text-sm text-red-500 mt-2">ESPN didn&apos;t list any leagues for those codes. Check that both were copied in full, or add a league ID below.</p>}
+        {error && error !== "none" && <p className="text-sm text-red-500 mt-2">Paste both codes.</p>}
         <Form has={false} />
       </div>
     );

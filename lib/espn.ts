@@ -14,6 +14,26 @@ export function parseCreds(raw: string | undefined): EspnCreds | null {
   } catch { return null; }
 }
 
+// Ask ESPN which fantasy football leagues this login belongs to, for the given season.
+export async function discoverLeagues(s2: string, swid: string, season: string): Promise<string[]> {
+  if (!s2 || !swid) return [];
+  try {
+    const res = await fetch(
+      `https://fan.espn.com/apis/v2/fans/${encodeURIComponent(swid)}?displayHiddenPrefs=true&context=fantasy&useCookieAuth=true&source=fantasyapp-ios&featureFlags=challengeEntries`,
+      { headers: { Cookie: `espn_s2=${s2}; SWID=${swid}`, Accept: "application/json" }, cache: "no-store" },
+    );
+    if (!res.ok) return [];
+    const d = (await res.json()) as { preferences?: { metaData?: { entry?: { gameId?: number; abbrev?: string; seasonId?: number; groups?: { groupId?: number }[] } } }[] };
+    const ids = new Set<string>();
+    for (const p of d.preferences ?? []) {
+      const e = p.metaData?.entry;
+      if (!e || !(e.gameId === 1 || e.abbrev === "FFL") || String(e.seasonId) !== season) continue;
+      for (const g of e.groups ?? []) if (g.groupId) ids.add(String(g.groupId));
+    }
+    return [...ids];
+  } catch { return []; }
+}
+
 const SLOT: Record<number, string> = {
   0: "QB", 2: "RB", 3: "WRRB_FLEX", 4: "WR", 5: "REC_FLEX", 6: "TE", 7: "SUPER_FLEX", 16: "DEF", 17: "K", 23: "FLEX",
 };
