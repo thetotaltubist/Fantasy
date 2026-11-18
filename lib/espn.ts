@@ -40,11 +40,14 @@ export async function discoverLeagues(s2: string, swid: string, season: string):
     const q = "displayHiddenPrefs=true&context=fantasy&useCookieAuth=true&source=fantasyapp-ios&featureFlags=challengeEntries";
     const tries = [encodeURIComponent(swid), swid, swid.replace(/[{}]/g, "")];
     let res: Response | null = null; const seen: number[] = [];
-    for (const t of tries) {
-      res = await espnFetch(`https://fan.espn.com/apis/v2/fans/${t}?${q}`, s2, swid);
+    let netErr = "";
+    outer: for (const host of ["fan.api.espn.com", "fan.espn.com"]) for (const t of tries) {
+      try { res = await espnFetch(`https://${host}/apis/v2/fans/${t}?${q}`, s2, swid); }
+      catch (err) { const e = err as { message?: string; cause?: { code?: string } }; netErr = `${host}: ${e.cause?.code ?? e.message ?? "failed"}`; continue outer; }
       seen.push(res.status);
-      if (res.ok) break;
+      if (res.ok) break outer;
     }
+    if (!res) return { ids: [], note: `Couldn't reach ESPN's account lookup (${netErr}).` };
     if (!res || !res.ok) {
       let body = ""; try { body = (await res!.text()).replace(/\s+/g, " ").slice(0, 160); } catch { /* no body */ }
       return { ids: [], note: `ESPN's account lookup answered ${seen.join(", ")}. ${body}` };
