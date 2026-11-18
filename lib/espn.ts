@@ -10,28 +10,49 @@ export function parseCreds(raw: string | undefined): EspnCreds | null {
   if (!raw) return null;
   try {
     const c = JSON.parse(raw) as EspnCreds;
-    return c && Array.isArray(c.ids) && c.ids.length ? { s2: c.s2 ?? "", swid: c.swid ?? "", ids: c.ids } : null;
+    return c && Array.isArray(c.ids) && (c.ids.length || c.s2) ? { s2: c.s2 ?? "", swid: c.swid ?? "", ids: c.ids } : null;
   } catch { return null; }
 }
 
+// The espn_s2 code can be written two ways (with %2B-style escapes, as the browser shows it,
+// or plain). Try it as pasted first, then the other spellings, until ESPN accepts one.
+async function espnFetch(url: string, s2: string, swid: string): Promise<Response> {
+  const forms = [s2];
+  try { const d = decodeURIComponent(s2); if (!forms.includes(d)) forms.push(d); } catch { /* not escaped */ }
+  const e = encodeURIComponent(forms[forms.length - 1]); if (!forms.includes(e)) forms.push(e);
+  let last: Response | null = null;
+  for (const f of s2 ? forms : [""]) {
+    last = await fetch(url, {
+      headers: f ? { Cookie: `espn_s2=${f}; SWID=${swid}`, Accept: "application/json", "X-Fantasy-Source": "kona", "X-Fantasy-Platform": "kona-PROD" } : { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (last.status !== 401 && last.status !== 403) return last;
+  }
+  return last as Response;
+}
+
 // Ask ESPN which fantasy football leagues this login belongs to, for the given season.
-export async function discoverLeagues(s2: string, swid: string, season: string): Promise<string[]> {
-  if (!s2 || !swid) return [];
+export type Discovery = { ids: string[]; note: string };
+export async function discoverLeagues(s2: string, swid: string, season: string): Promise<Discovery> {
+  if (!s2 || !swid) return { ids: [], note: "Both codes are needed to look up your leagues." };
   try {
-    const res = await fetch(
+    const res = await espnFetch(
       `https://fan.espn.com/apis/v2/fans/${encodeURIComponent(swid)}?displayHiddenPrefs=true&context=fantasy&useCookieAuth=true&source=fantasyapp-ios&featureFlags=challengeEntries`,
-      { headers: { Cookie: `espn_s2=${s2}; SWID=${swid}`, Accept: "application/json" }, cache: "no-store" },
+      s2, swid,
     );
-    if (!res.ok) return [];
+    if (!res.ok) return { ids: [], note: `ESPN's account lookup answered ${res.status}.` };
     const d = (await res.json()) as { preferences?: { metaData?: { entry?: { gameId?: number; abbrev?: string; seasonId?: number; groups?: { groupId?: number }[] } } }[] };
     const ids = new Set<string>();
+    let entries = 0;
     for (const p of d.preferences ?? []) {
       const e = p.metaData?.entry;
-      if (!e || !(e.gameId === 1 || e.abbrev === "FFL") || String(e.seasonId) !== season) continue;
+      if (!e) continue;
+      entries += 1;
+      if (!(e.gameId === 1 || e.abbrev === "FFL") || String(e.seasonId) !== season) continue;
       for (const g of e.groups ?? []) if (g.groupId) ids.add(String(g.groupId));
     }
-    return [...ids];
-  } catch { return []; }
+    return { ids: [...ids], note: `ESPN's account lookup worked: ${(d.preferences ?? []).length} items, ${entries} fantasy entries, ${ids.size} football leagues for ${season}.` };
+  } catch (err) { return { ids: [], note: `Couldn't reach ESPN's account lookup (${String((err as Error)?.message ?? err).slice(0, 80)}).` }; }
 }
 
 const SLOT: Record<number, string> = {
@@ -99,15 +120,15 @@ function lookup(players: Record<string, Player>) {
 export async function getEspnLeague(id: string, season: string, creds: EspnCreds, sleeperPlayers: Record<string, Player>): Promise<EspnResult> {
   let data: EspnLeague;
   try {
-    const res = await fetch(
+    const res = await espnFetch(
       `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${encodeURIComponent(id)}?view=mSettings&view=mRoster&view=mTeam`,
-      { headers: creds.s2 ? { Cookie: `espn_s2=${creds.s2}; SWID=${creds.swid}` } : {}, cache: "no-store" },
+      creds.s2, creds.swid,
     );
-    if (res.status === 401 || res.status === 403) return { ok: false, id, error: "ESPN refused the login codes for this league. They may have expired, so paste fresh ones." };
+    if (res.status === 401 || res.status === 403) return { ok: false, id, error: `ESPN refused the login codes for this league (answer ${res.status}). They may be incomplete or expired.` };
     if (res.status === 404) return { ok: false, id, error: "ESPN has no league with this ID for this season." };
     if (!res.ok) return { ok: false, id, error: `ESPN returned an error (${res.status}).` };
     data = (await res.json()) as EspnLeague;
-  } catch { return { ok: false, id, error: "Couldn't reach ESPN." }; }
+  } catch (err) { return { ok: false, id, error: `Couldn't read ESPN's answer (${String((err as Error)?.message ?? err).slice(0, 80)}).` }; }
 
   const players: Record<string, Player> = { ...sleeperPlayers };
   const map = lookup(sleeperPlayers);
