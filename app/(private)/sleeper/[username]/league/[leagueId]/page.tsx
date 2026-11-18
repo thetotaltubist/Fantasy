@@ -3,6 +3,7 @@ import {
   getUser, getNflState, getLeagues, getLeague, getRosters, getLeagueUsers, getPlayers, rosterOf, type LeagueFull,
 } from "@/lib/sleeper";
 import { LeagueView } from "@/app/_views/league-view";
+import { allLeaguesNav } from "@/lib/nav";
 
 export default async function LeaguePage({ params, searchParams }: {
   params: Promise<{ username: string; leagueId: string }>; searchParams: Promise<{ week?: string }>;
@@ -19,8 +20,14 @@ export default async function LeaguePage({ params, searchParams }: {
   const mine = rosterOf(rosters, user.user_id);
   if (!mine) notFound();
   const team = users.find((u) => u.user_id === user.user_id)?.metadata?.team_name;
-  const nav = [...all].sort((a, b) => a.name.localeCompare(b.name)).map((l) => ({
-    href: `/sleeper/${username}/league/${l.league_id}`, label: l.name.trim(), active: l.league_id === leagueId,
-  }));
-  return <LeagueView {...{ league, rosters, users, players, mine, team, state, weekParam, nav }} site="Sleeper" allHref={`/sleeper/${username}`} />;
+  const here = `/sleeper/${username}/league/${leagueId}`;
+  let { nav, allHref } = await allLeaguesNav(state.season, players, here);
+  // Looking at someone else's username: fall back to just their Sleeper leagues.
+  if (!nav.some((n) => n.active)) {
+    nav = [...all].sort((a, b) => a.name.localeCompare(b.name)).map((l) => ({
+      href: `/sleeper/${username}/league/${l.league_id}`, label: l.name.trim(), active: l.league_id === leagueId,
+    }));
+    allHref = `/sleeper/${username}`;
+  }
+  return <LeagueView {...{ league, rosters, users, players, mine, team, state, weekParam, nav, allHref }} site="Sleeper" />;
 }

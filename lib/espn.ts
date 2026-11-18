@@ -129,7 +129,18 @@ function lookup(players: Record<string, Player>) {
   return map;
 }
 
+// Pages ask for the same league several times in a row (list, league page, switcher), so keep
+// each answer for a minute.
+const recent = new Map<string, { at: number; src: object; result: EspnResult }>();
 export async function getEspnLeague(id: string, season: string, creds: EspnCreds, sleeperPlayers: Record<string, Player>): Promise<EspnResult> {
+  const k = `${id}|${season}|${creds.swid}|${creds.s2.slice(-12)}`;
+  const hit = recent.get(k);
+  if (hit && hit.src === sleeperPlayers && Date.now() - hit.at < 60_000) return hit.result;
+  const result = await loadEspnLeague(id, season, creds, sleeperPlayers);
+  if (result.ok) recent.set(k, { at: Date.now(), src: sleeperPlayers, result });
+  return result;
+}
+async function loadEspnLeague(id: string, season: string, creds: EspnCreds, sleeperPlayers: Record<string, Player>): Promise<EspnResult> {
   let data: EspnLeague;
   try {
     const res = await espnFetch(
