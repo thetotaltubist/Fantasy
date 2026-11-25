@@ -1,0 +1,54 @@
+<title>Fantasy HQ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<script type="application/json" id="claude-artifacts-manifest">{"permissions": ["full-access"]}</script>
+<style>/*TAILWIND*/</style>
+<style>
+/* Layout: one centered column (max 64rem) under a slim app bar; cards hold each piece of advice. */
+:root {
+  --bg: #f5f7f6; --card: #ffffff; --ink: #0f1a14; --muted: #5d6b64; --line: #dfe6e2;
+  --brand: #15803d; --good: #15803d; --bad: #dc2626; --espn: #c81e1e; --sleeper: #5b5bd6;
+  --field: #ffffff; --hover: rgba(15, 26, 20, 0.035);
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b110e; --card: #121a16; --ink: #e4ebe7; --muted: #8fa198; --line: #22302a;
+    --brand: #34c26a; --good: #34c26a; --bad: #f05252; --espn: #f05252; --sleeper: #8b8bf5;
+    --field: #0e1512; --hover: rgba(255, 255, 255, 0.04); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b110e; --card: #121a16; --ink: #e4ebe7; --muted: #8fa198; --line: #22302a;
+  --brand: #34c26a; --good: #34c26a; --bad: #f05252; --espn: #f05252; --sleeper: #8b8bf5;
+  --field: #0e1512; --hover: rgba(255, 255, 255, 0.04); color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; }
+h1, h2, .logo { font-family: var(--display); text-wrap: balance; }
+.wrap { max-width: 64rem; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.appbar { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; -webkit-app-region: drag; app-region: drag; }
+.appbar a, .appbar button { -webkit-app-region: no-drag; app-region: no-drag; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--card); }
+.navon { color: var(--ink); font-weight: 600; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.muted { color: var(--muted); }
+.line { border-color: var(--line); }
+.field { background: var(--field); color: var(--ink); }
+.btn { background: var(--brand); color: #fff; border-radius: 10px; padding: 0.6rem 1.1rem; font-weight: 600; }
+.btn:disabled { opacity: 0.6; }
+.rowlink:hover { background: var(--hover); }
+.chip-on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.chips { margin-left: -4px; padding-left: 4px; }
+a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+code { font-size: 0.9em; padding: 0 0.25em; border-radius: 4px; background: var(--hover); }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--brand); animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.text-red-500 { color: var(--bad) !important; }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<div id="root"></div>
+<script>/*BUNDLE*/</script>
