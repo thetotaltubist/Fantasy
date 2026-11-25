@@ -1,6 +1,6 @@
 // Fantasy HQ as a Mac app: the website's pages, rebuilt to run inside an installed Claude artifact.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { setDesktop, ENV, clearCache } from "./net";
+import { setDesktop, ENV, clearCache, siteToken, checkSite, SITE_KEY } from "./net";
 import { loadAll, summarize, buildLeague, type Settings, type Loaded, type Summary, type LeagueModel } from "./data";
 import { record, points, rankOf, ordinal, slotLabel, formatTags, isBad, getNflState, playerName, type Player } from "@/lib/sleeper";
 import { discoverLeagues, type EspnCreds } from "@/lib/espn";
@@ -23,8 +23,10 @@ function writeSettings(s: Settings) {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage blocked */ }
 }
 function applyEnv(s: Settings) {
-  ENV.FANTASYPROS_API_KEY = s.fpKey || undefined;
-  ENV.ODDS_API_KEY = s.oddsKey || undefined;
+  // Own keys win; otherwise, with the website password, the site's keys are used.
+  ENV.SITE_TOKEN = s.siteToken || undefined;
+  ENV.FANTASYPROS_API_KEY = s.fpKey || (s.siteToken ? SITE_KEY : undefined);
+  ENV.ODDS_API_KEY = s.oddsKey || (s.siteToken ? SITE_KEY : undefined);
 }
 
 const go = (h: string) => { location.hash = h; };
@@ -239,7 +241,7 @@ function LeagueScreen({ m, setWeek }: { m: LeagueModel; setWeek: (w: number) => 
           {propped > 0 ? `Player prop lines (yards, catches, touchdown odds) adjust ${propped} players this week. ` : ""}
           {weeklyUsed ? `Then blended half and half with the FantasyPros weekly consensus (${weekly.top20 === "all" ? "the 20 most accurate experts at each position" : weekly.top20 === "some" ? "the 20 most accurate experts where enough have posted, everyone elsewhere" : `all ${weekly.experts} experts who have posted, since the top 20 haven't yet`}, updated ${weekly.updated}).`
             : weekly.experts > 0 ? `Only ${weekly.experts} FantasyPros experts have ranked this week so far, so their consensus joins in once at least ${MIN_EXPERTS} have.`
-            : "FantasyPros weekly rankings aren't loaded (add your FantasyPros key in Settings)."}</p>
+            : "FantasyPros weekly rankings aren't loaded (add your website password in Settings)."}</p>
       </section>
 
       <section className="card px-4 py-3 mt-3">
@@ -359,13 +361,24 @@ function LeagueLoader({ data, entryKey }: { data: Loaded; entryKey: string }) {
 const input = "mt-1 w-full rounded-[10px] border line px-3 py-2 field text-sm";
 function SettingsScreen({ s, onSave }: { s: Settings; onSave: (s: Settings) => void }) {
   const [u, setU] = useState(s.sleeper);
+  const [pw, setPw] = useState("");
   const [fp, setFp] = useState("");
   const [odds, setOdds] = useState("");
-  const [saved, setSaved] = useState(false);
-  const submit = (e: any) => {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: any) => {
     e.preventDefault();
-    onSave({ ...s, sleeper: u.trim(), fpKey: fp.trim() || s.fpKey, oddsKey: odds.trim() || s.oddsKey });
-    setFp(""); setOdds(""); setSaved(true);
+    setBusy(true); setNote("");
+    let token = s.siteToken;
+    let msg = "Saved.";
+    if (pw) {
+      const t = await siteToken(pw);
+      const r = await checkSite(t);
+      msg = r.note;
+      if (r.ok) token = t;
+    }
+    onSave({ ...s, sleeper: u.trim(), siteToken: token, fpKey: fp.trim() || s.fpKey, oddsKey: odds.trim() || s.oddsKey });
+    setPw(""); setFp(""); setOdds(""); setNote(msg); setBusy(false);
   };
   return (
     <div className="max-w-md mx-auto">
@@ -374,22 +387,29 @@ function SettingsScreen({ s, onSave }: { s: Settings; onSave: (s: Settings) => v
       <form onSubmit={submit} className="card p-5 mt-4">
         <label htmlFor="sleeper-user" className="block text-sm font-semibold">Sleeper username</label>
         <input id="sleeper-user" value={u} onChange={(e: any) => setU(e.target.value)} placeholder="e.g. jdicesar" className={input} autoComplete="off" />
-        <label htmlFor="fp-key" className="block text-sm font-semibold mt-4">FantasyPros API key <span className="muted font-normal">(optional)</span></label>
-        <input id="fp-key" type="password" value={fp} onChange={(e: any) => setFp(e.target.value)} placeholder={s.fpKey ? "Saved. Leave blank to keep it." : "Adds expert consensus rankings"} className={input} autoComplete="off" />
-        <label htmlFor="odds-key" className="block text-sm font-semibold mt-4">The Odds API key <span className="muted font-normal">(optional)</span></label>
-        <input id="odds-key" type="password" value={odds} onChange={(e: any) => setOdds(e.target.value)} placeholder={s.oddsKey ? "Saved. Leave blank to keep it." : "Adds Vegas lines and player props"} className={input} autoComplete="off" />
-        <p className="text-[11px] muted mt-1">These are the same keys the website uses. Betting lines are kept for a few hours so opening the app doesn&apos;t use up Odds API credits.</p>
+        <label htmlFor="site-pw" className="block text-sm font-semibold mt-4">Fantasy HQ website password</label>
+        <input id="site-pw" type="password" value={pw} onChange={(e: any) => setPw(e.target.value)} placeholder={s.siteToken ? "Connected. Leave blank to keep it." : "The password you sign in to the website with"} className={input} autoComplete="off" />
+        <p className="text-[11px] muted mt-1">With it, the app gets FantasyPros rankings, Vegas lines and player props through your website, using the keys already saved there. The keys never come to this app.</p>
+        <details className="mt-3">
+          <summary className="text-xs muted cursor-pointer">Use my own API keys instead</summary>
+          <label htmlFor="fp-key" className="block text-sm font-semibold mt-3">FantasyPros API key</label>
+          <input id="fp-key" type="password" value={fp} onChange={(e: any) => setFp(e.target.value)} placeholder={s.fpKey ? "Saved. Leave blank to keep it." : "Optional"} className={input} autoComplete="off" />
+          <label htmlFor="odds-key" className="block text-sm font-semibold mt-3">The Odds API key</label>
+          <input id="odds-key" type="password" value={odds} onChange={(e: any) => setOdds(e.target.value)} placeholder={s.oddsKey ? "Saved. Leave blank to keep it." : "Optional"} className={input} autoComplete="off" />
+        </details>
+        <p className="text-[11px] muted mt-2">Betting lines are kept for a few hours so opening the app doesn&apos;t use up Odds API credits.</p>
         <div className="flex items-center gap-3 mt-4">
-          <button className="btn">Save</button>
-          {saved && <span className="text-sm" style={{ color: "var(--brand)" }}>Saved</span>}
+          <button className="btn" disabled={busy}>{busy ? "Checking…" : "Save"}</button>
+          {note && <span className="text-sm">{note}</span>}
         </div>
       </form>
       <div className="card p-4 mt-3 text-sm flex flex-wrap items-center justify-between gap-2">
         <span>ESPN {s.espn ? `connected · ${s.espn.ids.length} league${s.espn.ids.length === 1 ? "" : "s"}` : "not connected"}</span>
         <a className="underline" href="#espn">{s.espn ? "ESPN settings" : "Connect ESPN"}</a>
       </div>
-      {(s.fpKey || s.oddsKey) && (
-        <div className="mt-3 text-xs muted flex gap-4">
+      {(s.siteToken || s.fpKey || s.oddsKey) && (
+        <div className="mt-3 text-xs muted flex flex-wrap gap-4">
+          {s.siteToken && <button className="underline" onClick={() => onSave({ ...s, siteToken: "" })}>Disconnect the website</button>}
           {s.fpKey && <button className="underline" onClick={() => onSave({ ...s, fpKey: "" })}>Remove FantasyPros key</button>}
           {s.oddsKey && <button className="underline" onClick={() => onSave({ ...s, oddsKey: "" })}>Remove Odds API key</button>}
         </div>

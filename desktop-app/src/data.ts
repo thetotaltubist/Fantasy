@@ -14,7 +14,7 @@ import { setRosConsensus } from "@/lib/experts";
 import { getLines, vegasMultiplier } from "@/lib/odds";
 import { getProjections, getLockedTeams, projectPoints, adviseLineup, positionOf, type Proj } from "@/lib/projections";
 
-export type Settings = { sleeper: string; espn: EspnCreds | null; fpKey: string; oddsKey: string };
+export type Settings = { sleeper: string; espn: EspnCreds | null; fpKey: string; oddsKey: string; siteToken?: string };
 
 export type Entry = {
   key: string;                       // "s-<league id>" or "e-<league id>"

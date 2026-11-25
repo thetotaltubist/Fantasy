@@ -90,15 +90,59 @@ function curl(url: string, init?: Init): Promise<Res> {
   }));
 }
 
+// The website. With its password's token, FantasyPros and The Odds API are asked through the
+// site, which adds its own API keys; the app never holds them.
+export const SITE = "https://fantasy-hq-tubist.netlify.app";
+export const SITE_KEY = "via-site";   // stands in for a key so lib/ goes ahead and asks
+const viaSite = (url: string) => /^https:\/\/(api\.fantasypros\.com|api\.the-odds-api\.com)\//.test(url);
+
+// Several leagues ask for the same rankings at the same moment: share one request.
+const inFlight = new Map<string, Promise<{ status: number; body: string }>>();
 export async function appFetch(input: string | URL, init?: Init): Promise<Res> {
   const url = String(input);
+  if (init?.method && init.method !== "GET") return fetchOnce(url, init);
+  const k = `${url}|${JSON.stringify(init?.headers ?? {})}`;
+  let p = inFlight.get(k);
+  if (!p) {
+    p = fetchOnce(url, init).then(async (r) => ({ status: r.status, body: await r.text() }));
+    inFlight.set(k, p);
+    p.finally(() => inFlight.delete(k)).catch(() => {});
+  }
+  const r = await p;
+  return make(r.status, r.body);
+}
+
+async function fetchOnce(url: string, init?: Init): Promise<Res> {
   const ttl = ttlFor(url, init);
   const hit = cached(url, ttl);
   if (hit) return hit;
   if (!desktop?.childProcess) throw new Error("This only works in the installed Mac app.");
-  const res = await curl(url, init);
+  let res: Res;
+  if (viaSite(url) && ENV.SITE_TOKEN && (url.includes(`apiKey=${SITE_KEY}`) || init?.headers?.["x-api-key"] === SITE_KEY)) {
+    const clean = url.replace(/([?&])apiKey=[^&]*&?/, "$1").replace(/[?&]$/, "");
+    res = await curl(`${SITE}/api/upstream?u=${encodeURIComponent(clean)}`, { headers: { Authorization: `Bearer ${ENV.SITE_TOKEN}` } });
+  } else {
+    res = await curl(url, init);
+  }
   if (res.ok && ttl) store(url, ttl, await res.text());
   return res;
+}
+
+// Checks the website password and asks which keys the site has.
+export async function siteToken(password: string) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`fantasy-hq:${password}`));
+  return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+export async function checkSite(token: string): Promise<{ ok: boolean; note: string }> {
+  try {
+    const res = await curl(`${SITE}/api/upstream`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) return { ok: false, note: "The website didn't accept that password." };
+    if (res.status === 404) return { ok: false, note: "The website hasn't been updated to share its keys yet." };
+    if (!res.ok) return { ok: false, note: `The website answered ${res.status}.` };
+    const d = await res.json();
+    const have = [d.fantasypros && "FantasyPros", d.odds && "betting lines"].filter(Boolean);
+    return { ok: true, note: have.length ? `Connected. Using the website's keys for ${have.join(" and ")}.` : "Connected, but the website has no API keys set." };
+  } catch (e) { return { ok: false, note: `Couldn't reach the website (${String((e as Error)?.message ?? e).slice(0, 80)}).` }; }
 }
 
 // Every fetch() in the shared lib/ code is pointed at the function above when the app is built
