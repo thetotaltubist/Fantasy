@@ -139,7 +139,11 @@ export async function checkSite(token: string): Promise<{ ok: boolean; note: str
     if (res.status === 401) return { ok: false, note: "The website didn't accept that password." };
     if (res.status === 404) return { ok: false, note: "The website hasn't been updated to share its keys yet." };
     if (!res.ok) return { ok: false, note: `The website answered ${res.status}.` };
-    const d = await res.json();
+    const body = await res.text();
+    if (!body.trim().startsWith("{")) {
+      return { ok: false, note: "Netlify's team sign-in page is in front of the website, so the app can't reach it. Turn that off for the live site in Netlify, or use your own keys below." };
+    }
+    const d = JSON.parse(body);
     const have = [d.fantasypros && "FantasyPros", d.odds && "betting lines"].filter(Boolean);
     return { ok: true, note: have.length ? `Connected. Using the website's keys for ${have.join(" and ")}.` : "Connected, but the website has no API keys set." };
   } catch (e) { return { ok: false, note: `Couldn't reach the website (${String((e as Error)?.message ?? e).slice(0, 80)}).` }; }
