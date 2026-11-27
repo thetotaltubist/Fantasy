@@ -5,6 +5,40 @@ import { getTradedPicks, rankOf, type Player, type Roster, type LeagueFull } fro
 import { positionOf, type Proj } from "@/lib/projections";
 import { makeValuer } from "@/lib/value";
 import type { DynastyWaivers } from "@/lib/waivers";
+import { norm } from "@/lib/experts";
+import fbRaw from "@/private-data/footballers-dynasty.json";
+
+// The Fantasy Footballers' dynasty rankings (uploaded file, kept out of the public repo).
+type FbRow = { name: string; team: string; pos: string; age: number | null; rank: number };
+const fb = fbRaw as { source: string; asOf: string; players: FbRow[] };
+const fbByKey = new Map<string, FbRow>();
+for (const r of fb.players) fbByKey.set(`${norm(r.name)}|${r.pos}`, r);
+export const footballersDynasty = { count: fb.players.length, asOf: fb.asOf };
+
+// Half FantasyCalc, half the Footballers. Their overall rank is turned into a value by
+// reading off what FantasyCalc gives the player at that same overall rank.
+const blended = new WeakMap<Dynasty, Dynasty>();
+export function withFootballers(dyn: Dynasty, players: Record<string, Player>): Dynasty {
+  if (!fb.players.length) return dyn;
+  const hit = blended.get(dyn); if (hit) return hit;
+  const ladder = [...dyn.byId.values()].map((d) => d.value).sort((a, b) => b - a);
+  const at = (rank: number) => ladder[Math.min(ladder.length - 1, rank - 1)] ?? 0;
+  const byId = new Map(dyn.byId);
+  for (const [id, p] of Object.entries(players)) {
+    if (!p?.position || !["QB", "RB", "WR", "TE"].includes(p.position)) continue;
+    const name = p.full_name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
+    const r = name ? fbByKey.get(`${norm(name)}|${p.position}`) : undefined;
+    if (!r) continue;
+    const fc = dyn.byId.get(id);
+    const v = at(r.rank);
+    byId.set(id, fc
+      ? { ...fc, value: Math.round((fc.value + v) / 2) }
+      : { value: v, redraft: 0, age: r.age, pos: p.position });
+  }
+  const out = { ...dyn, byId };
+  blended.set(dyn, out);
+  return out;
+}
 
 export type DynPlayer = { value: number; redraft: number; age: number | null; pos: string };
 export type Dynasty = {
@@ -125,10 +159,11 @@ export async function dynastySetup(opts: {
 }) {
   const { league, rosters, mine, players, weeks, scoring } = opts;
   if (league.settings?.type !== 2) return null;
-  const dyn = await getDynasty({
+  const fcDyn = await getDynasty({
     numTeams: rosters.length, superflex: league.roster_positions.includes("SUPER_FLEX"), ppr: scoring.rec ?? 0,
   });
-  if (!dyn) return null;
+  if (!fcDyn) return null;
+  const dyn = withFootballers(fcDyn, players);
   const n = rosters.length, playoffTeams = league.settings?.playoff_teams || Math.ceil(n / 2);
   const weightOf = (r: Roster) => dynastyWeight(rankOf(rosters, r), n, playoffTeams);
   const { value } = makeValuer(players, weeks, scoring, opts.tilt);
@@ -146,5 +181,5 @@ export async function dynastySetup(opts: {
 export type DynastySetup = NonNullable<Awaited<ReturnType<typeof dynastySetup>>>;
 
 export const dynastyNote = (d: DynastySetup) =>
-  `Dynasty league: values are FantasyCalc dynasty trade values (age, long-term outlook and rookie picks), ` +
+  `Dynasty league: values are ${fb.players.length ? `half FantasyCalc dynasty trade values, half the Fantasy Footballers' dynasty rankings (${fb.asOf})` : "FantasyCalc dynasty trade values"} (age, long-term outlook and rookie picks), ` +
   `blended with the next three weeks. Your team looks ${d.mode}, so long-term value counts ${Math.round(d.weight * 100)}%.`;

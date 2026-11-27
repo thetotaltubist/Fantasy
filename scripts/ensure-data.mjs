@@ -2,5 +2,6 @@
 // create an empty stand-in so the site still builds.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 mkdirSync("private-data", { recursive: true });
-const f = "private-data/footballers-ros.json";
-if (!existsSync(f)) writeFileSync(f, JSON.stringify({ source: "", asOf: "", players: [] }));
+for (const f of ["private-data/footballers-ros.json", "private-data/footballers-dynasty.json"]) {
+  if (!existsSync(f)) writeFileSync(f, JSON.stringify({ source: "", asOf: "", players: [] }));
+}

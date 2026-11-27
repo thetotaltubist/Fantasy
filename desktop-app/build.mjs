@@ -6,10 +6,12 @@ import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
-if (!existsSync("../private-data/footballers-ros.json")) {
-  mkdirSync("../private-data", { recursive: true });
-  writeFileSync("../private-data/footballers-ros.json", JSON.stringify({ source: "", asOf: "", players: [] }));
-  console.warn("No Footballers rankings file: building without it.");
+for (const f of ["footballers-ros.json", "footballers-dynasty.json"]) {
+  if (!existsSync(`../private-data/${f}`)) {
+    mkdirSync("../private-data", { recursive: true });
+    writeFileSync(`../private-data/${f}`, JSON.stringify({ source: "", asOf: "", players: [] }));
+    console.warn(`No ${f}: building without it.`);
+  }
 }
 
 const out = await build({
