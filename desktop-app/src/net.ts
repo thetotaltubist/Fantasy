@@ -37,6 +37,7 @@ async function slot<T>(fn: () => Promise<T>): Promise<T> {
 const CACHE_PREFIX = "fhq-cache:";
 function ttlFor(url: string, init?: Init): number {
   if (url.includes("api.fantasypros.com")) return 3 * 3600;
+  if (url.includes("api.fantasycalc.com")) return 6 * 3600;
   if (url.includes("api.the-odds-api.com")) return init?.next?.revalidate ?? 3 * 3600;
   return 0;
 }

@@ -3,6 +3,7 @@ import type { Player, Roster } from "@/lib/sleeper";
 import { ELIGIBLE, positionOf, type Proj } from "@/lib/projections";
 import { expertRank } from "@/lib/experts";
 import { makeValuer } from "@/lib/value";
+import type { DynPlayer, Pick } from "@/lib/dynasty";
 
 export type TradeIdea = {
   partnerId: number;                 // roster_id of the other team
@@ -10,6 +11,9 @@ export type TradeIdea = {
   giveVal: number; getVal: number;   // blended points per game
   giveRank: number | null; getRank: number | null;
   myGain: number; theirGain: number; // change in each starting lineup, points per game
+  unit?: "pts" | "value";            // "value": dynasty league, numbers are FantasyCalc units
+  giveDyn?: number; getDyn?: number; giveAge?: number | null; getAge?: number | null;
+  pick?: { side: "give" | "get"; label: string; value: number };   // draft pick added to even it out
 };
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -81,6 +85,68 @@ export function tradeIdeas(opts: {
       };
       // Best for this partner = the swap that helps the less-helped side the most.
       if (!best || Math.min(idea.myGain, idea.theirGain) > Math.min(best.myGain, best.theirGain)) best = idea;
+    }
+    if (best) ideas.push(best);
+  }
+  return ideas.sort((x, y) => y.myGain - x.myGain).slice(0, opts.limit ?? 4);
+}
+
+// ---------- Dynasty leagues ----------
+// Same idea, but each team's lineup is scored with long-term value blended with now
+// (weighted by whether that team is contending or rebuilding), and the offer has to be
+// fair in dynasty value. A rookie draft pick can be added to the lighter side to even it out.
+// Same-position swaps are allowed here: a rebuilding team trading an older starter for a
+// younger one helps both sides.
+export function dynastyTradeIdeas(opts: {
+  rosters: Roster[]; mine: Roster; players: Record<string, Player>; slots: string[];
+  score: (id: string, weight: number) => number; info: (id: string) => DynPlayer | null;
+  weightOf: (r: Roster) => number; picks: Map<number, Pick[]>; limit?: number;
+}): TradeIdea[] {
+  const { rosters, mine, players, slots, score, info } = opts;
+  const pos = (id: string) => positionOf(id, players[id]);
+  const SKILL = new Set(["QB", "RB", "WR", "TE"]);
+  const dv = (id: string) => info(id)?.value ?? 0;
+  const lineupIds = (r: Roster) => (r.players ?? []).filter((id) => !(r.reserve ?? []).includes(id) && !(r.taxi ?? []).includes(id));
+  const pieces = (r: Roster) => lineupIds(r).filter((id) => SKILL.has(pos(id)) && !players[id]?.injury_status && dv(id) >= 300);
+  const wMine = opts.weightOf(mine);
+  const myVal = (id: string) => score(id, wMine);
+  const myIds = lineupIds(mine), myBase = bestTotal(slots, myIds, pos, myVal), myPieces = pieces(mine);
+  const ideas: TradeIdea[] = [];
+  for (const t of rosters) {
+    if (t.roster_id === mine.roster_id) continue;
+    const wT = opts.weightOf(t);
+    const tVal = (id: string) => score(id, wT);
+    const tIds = lineupIds(t), tBase = bestTotal(slots, tIds, pos, tVal);
+    let best: TradeIdea | null = null;
+    for (const a of myPieces) for (const b of pieces(t)) {
+      // A rebuilding team shouldn't take on a player near the end of his prime.
+      const old = (id: string) => (info(id)?.age ?? 0) >= 28;
+      if ((wMine >= 0.85 && old(b)) || (wT >= 0.85 && old(a))) continue;
+      const da = dv(a), db = dv(b);
+      const tol = Math.max(250, 0.1 * Math.max(da, db));
+      let pick: TradeIdea["pick"];
+      if (Math.abs(da - db) > tol) {
+        // The side giving less adds the pick that brings it closest to even.
+        const side = db > da ? "give" : "get";
+        const gap = Math.abs(da - db);
+        const pool = opts.picks.get(side === "give" ? mine.roster_id : t.roster_id) ?? [];
+        const p = pool.filter((x) => Math.abs(gap - x.value) <= tol).sort((x, y) => Math.abs(gap - x.value) - Math.abs(gap - y.value))[0];
+        if (!p) continue;
+        pick = { side, label: p.label, value: p.value };
+      }
+      const myGain = bestTotal(slots, [...myIds.filter((x) => x !== a), b], pos, myVal) - myBase;
+      if (myGain < 100) continue;
+      const theirGain = bestTotal(slots, [...tIds.filter((x) => x !== b), a], pos, tVal) - tBase;
+      if (theirGain < 100) continue;
+      const idea: TradeIdea = {
+        partnerId: t.roster_id, giveId: a, getId: b, giveVal: myVal(a), getVal: myVal(b),
+        giveRank: expertRank(players[a])?.rank ?? null, getRank: expertRank(players[b])?.rank ?? null,
+        myGain: Math.round(myGain), theirGain: Math.round(theirGain), unit: "value",
+        giveDyn: da, getDyn: db, giveAge: info(a)?.age ?? null, getAge: info(b)?.age ?? null, pick,
+      };
+      // Prefer a straight swap, then the one that helps the less-helped side most.
+      const key = (x: TradeIdea) => Math.min(x.myGain, x.theirGain) * (x.pick ? 0.85 : 1);
+      if (!best || key(idea) > key(best)) best = idea;
     }
     if (best) ideas.push(best);
   }

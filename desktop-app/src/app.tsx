@@ -8,6 +8,7 @@ import { expertSource } from "@/lib/experts";
 import { MIN_EXPERTS } from "@/lib/fantasypros";
 import { LAST_WEEK } from "@/lib/matchups";
 import { positionOf, type Proj } from "@/lib/projections";
+import { dynastyNote, fmtValue } from "@/lib/dynasty";
 
 declare const React: any;
 declare const ReactDOM: any;
@@ -174,6 +175,10 @@ function Group({ title, ids, players }: { title: string; ids: string[]; players:
     </details>
   );
 }
+// "dynasty 3,482 · age 23"
+const dynLabel = (v?: number, age?: number | null) =>
+  `dynasty ${fmtValue(v ?? 0)}${age ? ` · age ${Math.floor(age)}` : ""}`;
+
 const pct = (f: number) => { const n = Math.round((f - 1) * 100); return `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n)}%`; };
 const tone = (f: number) => (f >= 1.05 ? "var(--good)" : f <= 0.95 ? "var(--bad)" : "inherit");
 function Chip({ opp, factor }: { opp: string | null; factor: number | null }) {
@@ -197,7 +202,7 @@ function LeagueNav({ data, active }: { data: Loaded; active: string }) {
 
 function LeagueScreen({ m, setWeek }: { m: LeagueModel; setWeek: (w: number) => void }) {
   const { league, rosters, players, mine, team, state, week, slots, starters, reserve, taxi, bench, problems, projections,
-    projError, propped, pts, vegas, weekly, weeklyUsed, hasLines, matchups, playoffWeeks, nextWeeks, sched, picks, trades,
+    projError, propped, pts, vegas, weekly, weeklyUsed, hasLines, matchups, playoffWeeks, nextWeeks, sched, picks, trades, dynasty,
     ownerName, bestBall, locked, allLocked, advice, name } = m;
   const site = m.en.site;
   return (
@@ -251,16 +256,17 @@ function LeagueScreen({ m, setWeek }: { m: LeagueModel; setWeek: (w: number) => 
             {picks.map((w) => (
               <li key={w.addId} className="flex flex-wrap items-baseline gap-x-2 py-1.5 border-t line first:border-0 text-sm">
                 <PosBadge pos={w.pos} />
-                <span><b>Add</b> {name(w.addId)} <span className="muted text-xs">{players[w.addId]?.team ?? ""} · {w.addAvg.toFixed(1)}/gm{w.addRank ? ` · ROS ${w.pos}${w.addRank}` : ""}</span></span>
+                <span><b>Add</b> {name(w.addId)} <span className="muted text-xs">{players[w.addId]?.team ?? ""} · {w.unit === "value" ? dynLabel(w.addDyn, w.addAge) : `${w.addAvg.toFixed(1)}/gm`}{w.addRank ? ` · ROS ${w.pos}${w.addRank}` : ""}</span></span>
                 {w.trending && <span className="text-[10px] font-semibold text-amber-500">HOT</span>}
-                {w.dropId && <span><b>Drop</b> {name(w.dropId)} <span className="muted text-xs">{w.dropAvg.toFixed(1)}/gm{w.dropRank ? ` · ROS ${w.pos}${w.dropRank}` : ""}</span></span>}
-                <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{w.gain.toFixed(1)}</span>
+                {w.dropId && <span><b>Drop</b> {name(w.dropId)} <span className="muted text-xs">{w.unit === "value" ? dynLabel(w.dropDyn, w.dropAge) : `${w.dropAvg.toFixed(1)}/gm`}{w.dropRank ? ` · ROS ${w.pos}${w.dropRank}` : ""}</span></span>}
+                <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{w.unit === "value" ? fmtValue(w.gain) : w.gain.toFixed(1)}</span>
               </li>
             ))}
           </ul>
         )}
         <p className="text-[11px] muted mt-2">Value blends projected points over the next three weeks with {expertSource.count ? expertSource.label : "expert rankings once uploaded"}. HOT means lots of Sleeper managers added the player in the last day.
-          {league.settings?.type === 2 ? " Dynasty league: this only looks at the next few weeks, so weigh long-term value before dropping young players." : ""}</p>
+          {dynasty ? ` ${dynastyNote(dynasty)} The green number is the gain in that blended value.`
+            : league.settings?.type === 2 ? " Dynasty values couldn't be loaded, so this only looks at the next few weeks. Weigh long-term value before dropping young players." : ""}</p>
       </section>
 
       <section className="card px-4 py-3 mt-3">
@@ -273,20 +279,23 @@ function LeagueScreen({ m, setWeek }: { m: LeagueModel; setWeek: (w: number) => 
                 <li key={t.partnerId} className="py-1.5 border-t line first:border-0 text-sm">
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-semibold">{ownerName(t.partnerId)}</span>
-                    <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{t.myGain.toFixed(1)}</span>
+                    <span className="ml-auto font-semibold tabular-nums" style={{ color: "var(--brand)" }}>+{t.unit === "value" ? fmtValue(t.myGain) : t.myGain.toFixed(1)}</span>
                   </div>
                   <div className="flex flex-wrap items-baseline gap-x-3">
-                    <span><b>Get</b> {name(t.getId)} <span className="muted text-xs">{rp} · {t.getVal.toFixed(1)}/gm{t.getRank ? ` · ROS ${rp}${t.getRank}` : ""}</span></span>
-                    <span><b>Give</b> {name(t.giveId)} <span className="muted text-xs">{gp} · {t.giveVal.toFixed(1)}/gm{t.giveRank ? ` · ROS ${gp}${t.giveRank}` : ""}</span></span>
-                    <span className="muted text-xs">helps them +{t.theirGain.toFixed(1)}</span>
+                    <span><b>Get</b> {name(t.getId)} <span className="muted text-xs">{rp} · {t.unit === "value" ? dynLabel(t.getDyn, t.getAge) : `${t.getVal.toFixed(1)}/gm`}{t.getRank ? ` · ROS ${rp}${t.getRank}` : ""}</span>
+                      {t.pick?.side === "get" && <> <b>+</b> their {t.pick.label} <span className="muted text-xs">{fmtValue(t.pick.value)}</span></>}</span>
+                    <span><b>Give</b> {name(t.giveId)} <span className="muted text-xs">{gp} · {t.unit === "value" ? dynLabel(t.giveDyn, t.giveAge) : `${t.giveVal.toFixed(1)}/gm`}{t.giveRank ? ` · ROS ${gp}${t.giveRank}` : ""}</span>
+                      {t.pick?.side === "give" && <> <b>+</b> your {t.pick.label} <span className="muted text-xs">{fmtValue(t.pick.value)}</span></>}</span>
+                    <span className="muted text-xs">helps them +{t.unit === "value" ? fmtValue(t.theirGain) : t.theirGain.toFixed(1)}</span>
                   </div>
                 </li>
               );
             })}
           </ul>
         )}
-        <p className="text-[11px] muted mt-2">Each idea swaps a player you can spare for one who would start for you, where the other team&apos;s starting lineup improves too. The green number is points per game added to your lineup. Injured players are left out.
-          {league.settings?.type === 2 ? " Dynasty league: this ignores age and draft picks." : ""}</p>
+        <p className="text-[11px] muted mt-2">Each idea swaps a player you can spare for one who would start for you, where the other team&apos;s starting lineup improves too.{dynasty ? "" : " The green number is points per game added to your lineup."} Injured players are left out.
+          {dynasty ? ` ${dynastyNote(dynasty)} Each team's lineup is scored with its own mix (rebuilding teams weigh the future more), offers must be within about 10% in dynasty value, and a rookie pick is added to the lighter side when needed. Rebuilding teams aren't offered players 28 or older. Green numbers are blended value, not points.`
+            : league.settings?.type === 2 ? " Dynasty values couldn't be loaded, so this ignores age and draft picks." : ""}</p>
       </section>
 
       {sched.length > 0 && (

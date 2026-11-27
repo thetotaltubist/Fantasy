@@ -6,7 +6,8 @@ import {
 } from "@/lib/sleeper";
 import { getEspnLeague, type EspnCreds } from "@/lib/espn";
 import { waiverPicks, getTrending } from "@/lib/waivers";
-import { tradeIdeas } from "@/lib/trades";
+import { tradeIdeas, dynastyTradeIdeas } from "@/lib/trades";
+import { dynastySetup } from "@/lib/dynasty";
 import { getProps, applyProps } from "@/lib/props";
 import { getMatchups, outlook, LAST_WEEK } from "@/lib/matchups";
 import { getEcr, getRos, blendWeekly, scoringKey, MIN_EXPERTS } from "@/lib/fantasypros";
@@ -143,13 +144,19 @@ export async function buildLeague(en: Entry, state: NflState, weekWanted: number
     .filter((id) => SKILL.includes(positionOf(id, players[id])) && players[id]?.team)
     .map((id) => ({ id, next: look(id, nextWeeks).list, po: look(id, playoffWeeks) }))
     .sort((a, b) => b.po.avg - a.po.avg);
+  // Dynasty leagues: blend long-term dynasty value into waivers and trades.
+  const dynasty = projError ? null : await dynastySetup({
+    league, rosters, mine, players, weeks: [projections, next1, next2], scoring, tilt, site: en.site,
+  });
   const picks = projError ? [] : waiverPicks({
     rosters, mine, players, weeks: [projections, next1, next2], scoring,
-    slots: league.roster_positions, trending, tilt,
+    slots: league.roster_positions, trending, tilt, dynasty: dynasty?.waivers,
   });
-  const trades = projError ? [] : tradeIdeas({
-    rosters, mine, players, weeks: [projections, next1, next2], scoring, slots: league.roster_positions, tilt,
-  });
+  const trades = projError ? [] : dynasty
+    ? dynastyTradeIdeas({ rosters, mine, players, slots: league.roster_positions, ...dynasty.trades })
+    : tradeIdeas({
+      rosters, mine, players, weeks: [projections, next1, next2], scoring, slots: league.roster_positions, tilt,
+    });
   const ownerName = (rosterId: number) => {
     const r = rosters.find((x) => x.roster_id === rosterId);
     const u = users.find((x) => x.user_id === r?.owner_id);
@@ -165,7 +172,7 @@ export async function buildLeague(en: Entry, state: NflState, weekWanted: number
   return {
     en, league, rosters, players, mine, team: en.team, state, week, slots, starters, reserve, taxi, bench, problems,
     projections, projError, propped: propped.used, pts, vegas, weekly, weeklyUsed, hasLines,
-    matchups, playoffWeeks, nextWeeks, sched, picks, trades, ownerName, bestBall, locked, allLocked, advice, name,
+    matchups, playoffWeeks, nextWeeks, sched, picks, trades, dynasty, ownerName, bestBall, locked, allLocked, advice, name,
   };
 }
 export type LeagueModel = Awaited<ReturnType<typeof buildLeague>>;

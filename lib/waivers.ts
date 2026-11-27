@@ -4,11 +4,21 @@ import { isBad } from "@/lib/sleeper";
 import { projectPoints, positionOf, type Proj } from "@/lib/projections";
 import { expertRank } from "@/lib/experts";
 import { makeValuer } from "@/lib/value";
+import type { DynPlayer } from "@/lib/dynasty";
+
+// Dynasty leagues: score players by long-term value blended with the next few weeks.
+export type DynastyWaivers = {
+  score: (id: string) => number;           // FantasyCalc units, already weighted for your team
+  info: (id: string) => DynPlayer | null;
+  ids: string[];                           // players with a dynasty value (rookies may have no projection yet)
+};
 
 export type WaiverPick = {
   addId: string; dropId: string | null; pos: string;
   addAvg: number; dropAvg: number; gain: number; thisWeek: number; trending: boolean;
   addRank: number | null; dropRank: number | null;   // expert rest-of-season rank at the position
+  unit: "pts" | "value";                              // "value": dynasty league, numbers are FantasyCalc units
+  addDyn?: number; dropDyn?: number; addAge?: number | null; dropAge?: number | null;
 };
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -17,12 +27,16 @@ export function waiverPicks(opts: {
   rosters: Roster[]; mine: Roster; players: Record<string, Player>;
   weeks: Record<string, Proj>[];         // projections for this week and the next two
   scoring: Record<string, number>; slots: string[]; tilt?: (id: string) => number; trending: Set<string>; limit?: number;
+  dynasty?: DynastyWaivers;
 }): WaiverPick[] {
   const { rosters, mine, players, weeks, scoring, slots, trending } = opts;
   const owned = new Set<string>();
   for (const r of rosters) for (const id of [...(r.players ?? []), ...(r.reserve ?? []), ...(r.taxi ?? [])]) owned.add(id);
 
-  const { value } = makeValuer(players, weeks, scoring, opts.tilt);
+  const dy = opts.dynasty;
+  const { value: weekly } = makeValuer(players, weeks, scoring, opts.tilt);
+  const value = dy ? dy.score : weekly;
+  const minGain = dy ? 150 : 1;
   const now = (id: string) => (isBad(players[id]) ? 0 : projectPoints(weeks[0]?.[id], scoring));
 
   const used = new Set(slots.filter((s) => s !== "BN"));
@@ -30,7 +44,7 @@ export function waiverPicks(opts: {
     used.has(pos) || (["RB", "WR", "TE"].includes(pos) && (used.has("FLEX") || used.has("SUPER_FLEX"))) ||
     (pos === "QB" && used.has("SUPER_FLEX"));
 
-  const free = Object.keys(weeks[0] ?? {})
+  const free = [...new Set([...Object.keys(weeks[0] ?? {}), ...(dy?.ids ?? [])])]
     .filter((id) => !owned.has(id) && (players[id]?.team || /^[A-Z]{2,3}$/.test(id)))
     .map((id) => ({ id, pos: positionOf(id, players[id]), avg: value(id) }))
     .filter((f) => wanted(f.pos) && f.avg > 0)
@@ -50,16 +64,22 @@ export function waiverPicks(opts: {
     if ((perPos[f.pos] ?? 0) >= 2) continue;
     // Drop the weakest player at the same position; that keeps your roster balanced.
     const d = droppable.find((x) => x.pos === f.pos && !dropped.has(x.id));
-    if (!d || f.avg - d.avg < 1) continue;
+    if (!d || f.avg - d.avg < minGain) continue;
     // If the experts rank your player ahead of the free agent, a short-term projection edge isn't enough.
+    // (Dynasty leagues skip this: the dynasty value already decides who is worth more.)
     const ar = expertRank(players[f.id])?.rank, dr = expertRank(players[d.id])?.rank;
-    if (dr != null && (ar == null || ar > dr)) continue;
+    if (!dy && dr != null && (ar == null || ar > dr)) continue;
     dropped.add(d.id);
     perPos[f.pos] = (perPos[f.pos] ?? 0) + 1;
     picks.push({
       addId: f.id, dropId: d.id, pos: f.pos, addAvg: f.avg, dropAvg: d.avg,
       gain: r1(f.avg - d.avg), thisWeek: r1(now(f.id)), trending: trending.has(f.id),
       addRank: expertRank(players[f.id])?.rank ?? null, dropRank: expertRank(players[d.id])?.rank ?? null,
+      unit: dy ? "value" : "pts",
+      ...(dy ? {
+        addDyn: dy.info(f.id)?.value ?? 0, dropDyn: dy.info(d.id)?.value ?? 0,
+        addAge: dy.info(f.id)?.age ?? null, dropAge: dy.info(d.id)?.age ?? null,
+      } : {}),
     });
   }
   return picks.sort((a, b) => b.gain - a.gain);
