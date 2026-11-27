@@ -32,6 +32,9 @@ export const getLeagues = (userId: string, season: string) =>
 export const getLeague = (id: string) => get<League>(`/league/${id}`);
 export const getRosters = (id: string) => get<Roster[]>(`/league/${id}/rosters`);
 export const getLeagueUsers = (id: string) => get<LeagueUser[]>(`/league/${id}/users`);
+// Rookie draft picks that have changed hands (roster_id = original team, owner_id = team holding it now).
+export const getTradedPicks = (id: string) =>
+  get<{ season: string; round: number; roster_id: number; owner_id: number }[]>(`/league/${id}/traded_picks`);
 
 // The full player list is ~5 MB, too big for Next's fetch cache, so keep it in memory for 12 hours.
 let playerCache: { at: number; data: Record<string, Player> } | null = null;
@@ -66,6 +69,7 @@ export const avatarUrl = (id: string | null) => (id ? `https://sleepercdn.com/av
 
 export type LeagueSettings = {
   type?: number; best_ball?: number; league_average_match?: number; playoff_week_start?: number;
+  playoff_teams?: number; draft_rounds?: number;
 };
 export type LeagueFull = League & { settings?: LeagueSettings };
 
